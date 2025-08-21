@@ -1,22 +1,22 @@
-platform :ios, '12.0'
+# Uncomment this line to define a global platform for your project
+platform :ios, '13.0'
 
-use_frameworks!
-use_modular_headers!
-
+# Ruta del proyecto Flutter
 flutter_application_path = File.expand_path('..', __dir__)
-require File.expand_path(File.join(flutter_application_path, 'packages', 'flutter_tools', 'bin', 'podhelper'))
+
+# Buscar la ruta real del SDK de Flutter en Codemagic/Mac
+flutter_root = `flutter --version --machine | grep flutterRoot | sed -E 's/.*"flutterRoot":"([^"]+)".*/\1/'`.strip
+
+# Incluir el podhelper desde el SDK de Flutter
+require File.expand_path(File.join(flutter_root, 'packages', 'flutter_tools', 'bin', 'podhelper'))
 
 target 'Runner' do
-  flutter_ios_podfile_setup
-
   use_frameworks!
   use_modular_headers!
 
-  flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+  flutter_ios_podfile_setup
 end
 
 post_install do |installer|
-  installer.pods_project.targets.each do |target|
-    flutter_additional_ios_build_settings(target)
-  end
+  flutter_additional_ios_build_settings(installer)
 end
