@@ -4,18 +4,26 @@ use_frameworks!
 use_modular_headers!
 
 target 'Runner' do
+  # Ruta correcta a Flutter
   flutter_application_path = '../flutter'
   eval(File.read(File.join(flutter_application_path, 'packages', 'flutter_tools', 'bin', 'podhelper.rb')), binding)
 
   flutter_ios_podfile_setup
 
+  # Tests de iOS (si los usas)
   target 'RunnerTests' do
     inherit! :search_paths
   end
 end
 
+# Post install para Firebase y otras dependencias
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
+
+    # Necesario para que Firebase funcione bien con modular headers
+    target.build_configurations.each do |config|
+      config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
+    end
   end
 end
