@@ -155,10 +155,10 @@ class _MiPerfilPageState extends State<MiPerfilPage> {
                     backgroundImage: user?.photoURL != null
                         ? FileImage(File(user!.photoURL!))
                         : null,
+                    backgroundColor: Colors.grey.shade800,
                     child: user?.photoURL == null
                         ? const Icon(Icons.person, size: 64, color: Colors.white)
                         : null,
-                    backgroundColor: Colors.grey.shade800,
                   ),
                   Positioned(
                     bottom: 0,

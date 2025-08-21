@@ -6,10 +6,10 @@ class UserName extends StatelessWidget {
   final String role;
 
   const UserName({
-    Key? key,
+    super.key,
     required this.name,
     required this.role,
-  }) : super(key: key);
+  });
 
   bool get isTipster => role == "tipster";
 

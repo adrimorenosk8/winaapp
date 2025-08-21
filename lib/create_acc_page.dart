@@ -5,6 +5,8 @@ import 'package:crypto/crypto.dart';
 import 'dart:convert';
 
 class CreateAccPage extends StatefulWidget {
+  const CreateAccPage({super.key});
+
   @override
   _CreateAccPageState createState() => _CreateAccPageState();
 }

@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 class VerifiedBadge extends StatelessWidget {
   final bool show;
 
-  const VerifiedBadge({Key? key, required this.show}) : super(key: key);
+  const VerifiedBadge({super.key, required this.show});
 
   @override
   Widget build(BuildContext context) {
