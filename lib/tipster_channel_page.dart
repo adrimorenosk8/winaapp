@@ -19,18 +19,26 @@ class _TipsterChannelPageState extends State<TipsterChannelPage> {
   @override
   void initState() {
     super.initState();
-    // Scroll al final al entrar
-    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+    // scroll inicial tras montar pantalla
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom(force: true));
   }
 
-  void _scrollToBottom() {
+  void _scrollToBottom({bool force = false}) {
     if (_scrollController.hasClients) {
       Future.delayed(const Duration(milliseconds: 200), () {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent + 60, // margen extra abajo
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
+        if (_scrollController.hasClients) {
+          final maxScroll = _scrollController.position.maxScrollExtent;
+          final current = _scrollController.offset;
+
+          // solo baja si ya estás cerca del fondo o si es forzado
+          if (force || (maxScroll - current < 300)) {
+            _scrollController.animateTo(
+              maxScroll + 60,
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOut,
+            );
+          }
+        }
       });
     }
   }
@@ -327,6 +335,10 @@ class _TipsterChannelPageState extends State<TipsterChannelPage> {
                           child: Text("Este tipster aún no tiene publicaciones"));
                     }
 
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      _scrollToBottom(); // 👈 al terminar de pintar posts
+                    });
+
                     String? lastDate;
                     return Column(
                       children: docs.map((doc) {
@@ -526,6 +538,11 @@ class _TipsterChannelPageState extends State<TipsterChannelPage> {
                     if (!snap.hasData) return const SizedBox();
                     final docs = snap.data!.docs;
                     if (docs.isEmpty) return const SizedBox();
+
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      _scrollToBottom(); // 👈 al terminar de pintar apuestas
+                    });
+
                     return Column(
                       children: docs.map((d) {
                         final data = d.data()! as Map<String, dynamic>;
@@ -535,7 +552,7 @@ class _TipsterChannelPageState extends State<TipsterChannelPage> {
                   },
                 ),
 
-                const SizedBox(height: 60), // 👈 margen final
+                const SizedBox(height: 60), // margen final
               ],
             ),
           ),
