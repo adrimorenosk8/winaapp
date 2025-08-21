@@ -4,10 +4,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'firebase_options.dart';
 
-// importa las páginas externas
+// páginas externas
 import 'home_page.dart';
 import 'create_channel_page.dart';
-import 'tipster_main.dart'; // ✅ usamos este en vez de TipsterPage
+import 'tipster_main.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -48,7 +48,7 @@ class WinaApp extends StatelessWidget {
         ),
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.blueAccent,
+            backgroundColor: const Color(0xFF1DB954),
             foregroundColor: Colors.white,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
@@ -58,8 +58,8 @@ class WinaApp extends StatelessWidget {
         ),
         outlinedButtonTheme: OutlinedButtonThemeData(
           style: OutlinedButton.styleFrom(
-            foregroundColor: Colors.blueAccent,
-            side: const BorderSide(color: Colors.blueAccent),
+            foregroundColor: const Color(0xFF1DB954),
+            side: const BorderSide(color: Color(0xFF1DB954)),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
             ),
@@ -72,7 +72,7 @@ class WinaApp extends StatelessWidget {
   }
 }
 
-/// Escucha si hay sesión; si hay, carga el rol y enruta.
+/// Escucha si hay sesión; si hay, enruta por rol
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
 
@@ -92,52 +92,39 @@ class AuthGate extends StatelessWidget {
   }
 }
 
-/// Busca rol y canal, y enruta según corresponda
+/// Decide página según rol y canal
 class RoleRouter extends StatelessWidget {
   const RoleRouter({super.key, required this.uid, required this.email});
   final String uid;
   final String email;
 
   Future<Widget> _decidePage(BuildContext context) async {
-    print("🔎 Entrando a RoleRouter con uid=$uid, email=$email");
-
     try {
       final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
       final userDoc = await userRef.get();
 
       if (!userDoc.exists) {
-        print("⚠️ No existe el documento user, creando como 'user'");
         await userRef.set({
           'email': email,
           'role': 'user',
           'createdAt': FieldValue.serverTimestamp(),
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Usuario creado con rol user")),
-        );
         return const HomePage();
       }
 
       final role = (userDoc.data()?['role'] as String?) ?? 'user';
-      print("✅ Rol encontrado: $role");
 
       if (role == 'tipster') {
         final canalRef = FirebaseFirestore.instance.collection('canales').doc(uid);
         final canalDoc = await canalRef.get();
 
         if (!canalDoc.exists) {
-          print("⚠️ Tipster sin canal → redirigiendo a CreateChannelPage");
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Debes crear tu canal")),
-          );
           return CreateChannelPage(uid: uid, email: email);
         } else {
-          print("✅ Tipster con canal → redirigiendo a TipsterMainPage");
           return const TipsterMainPage();
         }
       }
 
-      print("➡️ Usuario normal → HomePage");
       return const HomePage();
     } catch (e, st) {
       print("❌ Error en RoleRouter: $e\n$st");
@@ -156,10 +143,7 @@ class RoleRouter extends StatelessWidget {
           return const Scaffold(body: Center(child: CircularProgressIndicator()));
         }
         if (snap.hasError) {
-          print("❌ FutureBuilder detectó error: ${snap.error}");
-          return Scaffold(
-            body: Center(child: Text("Error: ${snap.error}")),
-          );
+          return Scaffold(body: Center(child: Text("Error: ${snap.error}")));
         }
         return snap.data!;
       },
@@ -167,7 +151,7 @@ class RoleRouter extends StatelessWidget {
   }
 }
 
-/// Página de login / registro
+/// Página de login + crear cuenta
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
   @override
@@ -185,32 +169,6 @@ class _LoginPageState extends State<LoginPage> {
     _email.dispose();
     _password.dispose();
     super.dispose();
-  }
-
-  Future<void> _register() async {
-    if (!_formKey.currentState!.validate()) return;
-    try {
-      final cred = await FirebaseAuth.instance.createUserWithEmailAndPassword(
-        email: _email.text.trim(),
-        password: _password.text.trim(),
-      );
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(cred.user!.uid)
-          .set({
-        'email': _email.text.trim(),
-        'role': 'user',
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('✅ Cuenta creada')),
-      );
-    } on FirebaseAuthException catch (e) {
-      _showError('Registro', e.message);
-    } catch (e) {
-      _showError('Registro', e.toString());
-    }
   }
 
   Future<void> _login() async {
@@ -231,6 +189,29 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  Future<void> _register() async {
+    if (!_formKey.currentState!.validate()) return;
+    try {
+      final cred = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+        email: _email.text.trim(),
+        password: _password.text.trim(),
+      );
+      await FirebaseFirestore.instance.collection('users').doc(cred.user!.uid).set({
+        'email': _email.text.trim(),
+        'role': 'user',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('✅ Cuenta creada')),
+      );
+    } on FirebaseAuthException catch (e) {
+      _showError('Registro', e.message);
+    } catch (e) {
+      _showError('Registro', e.toString());
+    }
+  }
+
   void _showError(String where, String? msg) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('❌ $where: ${msg ?? 'Error desconocido'}')),
@@ -238,23 +219,15 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   String? _validateEmail(String? value) {
-    if (value == null || value.trim().isEmpty) {
-      return 'Introduce un correo electrónico';
-    }
+    if (value == null || value.trim().isEmpty) return 'Introduce un correo';
     final emailRegex = RegExp(r'^[^@]+@[^@]+\.[^@]+');
-    if (!emailRegex.hasMatch(value.trim())) {
-      return 'Introduce un correo válido';
-    }
+    if (!emailRegex.hasMatch(value.trim())) return 'Correo inválido';
     return null;
   }
 
   String? _validatePassword(String? value) {
-    if (value == null || value.trim().isEmpty) {
-      return 'Introduce una contraseña';
-    }
-    if (value.trim().length < 6) {
-      return 'Debe tener al menos 6 caracteres';
-    }
+    if (value == null || value.trim().isEmpty) return 'Introduce contraseña';
+    if (value.trim().length < 6) return 'Mínimo 6 caracteres';
     return null;
   }
 
@@ -279,7 +252,7 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                     const SizedBox(height: 20),
                     Text(
-                      'Inicia sesión en Wina',
+                      'Bienvenido a Wina',
                       style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                             fontWeight: FontWeight.w600,
                             color: Colors.white,
@@ -288,15 +261,11 @@ class _LoginPageState extends State<LoginPage> {
                     const SizedBox(height: 24),
                     TextFormField(
                       controller: _email,
-                      keyboardType: TextInputType.text,
-                      textInputAction: TextInputAction.next,
-                      enableSuggestions: false,
-                      autocorrect: false,
+                      keyboardType: TextInputType.emailAddress,
                       validator: _validateEmail,
                       style: const TextStyle(color: Colors.white),
                       decoration: const InputDecoration(
                         labelText: 'Correo electrónico',
-                        hintText: 'tucorreo@ejemplo.com',
                         prefixIcon: Icon(Icons.mail),
                       ),
                     ),
@@ -304,18 +273,14 @@ class _LoginPageState extends State<LoginPage> {
                     TextFormField(
                       controller: _password,
                       obscureText: _obscure,
-                      textInputAction: TextInputAction.done,
                       validator: _validatePassword,
                       style: const TextStyle(color: Colors.white),
                       decoration: InputDecoration(
                         labelText: 'Contraseña',
-                        hintText: 'Mínimo 6 caracteres',
                         prefixIcon: const Icon(Icons.lock),
                         suffixIcon: IconButton(
                           onPressed: () => setState(() => _obscure = !_obscure),
-                          icon: Icon(
-                            _obscure ? Icons.visibility : Icons.visibility_off,
-                          ),
+                          icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off),
                         ),
                       ),
                       onFieldSubmitted: (_) => _login(),
