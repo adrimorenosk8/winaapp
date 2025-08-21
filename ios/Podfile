@@ -1,16 +1,18 @@
-# Podfile para Flutter en iOS
-platform :ios, '15.0'
+platform :ios, '12.0'
 
-# Ruta correcta a flutter_tools/podhelper
-flutter_root = File.expand_path('..', File.dirname(`which flutter`))
-require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
+use_frameworks!
+use_modular_headers!
+
+flutter_application_path = File.expand_path('..', __dir__)
+require File.expand_path(File.join(flutter_application_path, 'packages', 'flutter_tools', 'bin', 'podhelper'))
 
 target 'Runner' do
+  flutter_ios_podfile_setup
+
   use_frameworks!
   use_modular_headers!
 
-  flutter_application_path = '../'
-  install_all_flutter_pods(flutter_application_path)
+  flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 end
 
 post_install do |installer|
