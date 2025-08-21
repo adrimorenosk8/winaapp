@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:wina/auth_gate.dart';
 
 import 'main.dart';
 import 'tipster_channel_page.dart';
 import 'mi_perfil.dart';
 import 'buscar_page.dart';
+
+// 👇 Importa tu widget global
+import 'widgets/user_name.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -16,17 +20,6 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   int _selectedIndex = 0;
-
-  Future<void> _logout(BuildContext context) async {
-    await FirebaseAuth.instance.signOut();
-    if (context.mounted) {
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (_) => const AuthGate()),
-        (route) => false,
-      );
-    }
-  }
 
   bool _esPronostico(dynamic typeField) {
     if (typeField == null) return false;
@@ -78,7 +71,6 @@ class _HomePageState extends State<HomePage> {
 
           return Column(
             children: [
-              // 🔹 Encabezado "Pronósticos del día"
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 child: Center(
@@ -102,8 +94,6 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
               ),
-
-              // 🔹 Lista de pronósticos
               Expanded(
                 child: ListView.builder(
                   itemCount: posts.length,
@@ -122,10 +112,10 @@ class _HomePageState extends State<HomePage> {
                         }
 
                         final canal =
-                            canalSnap.data!.data() as Map<String, dynamic>? ??
-                                {};
+                            canalSnap.data!.data() as Map<String, dynamic>? ?? {};
                         final nombreCanal = canal['nombre_canal'] ?? 'Canal';
                         final fotoCanal = canal['foto_canal'];
+                        final role = canal['role'] ?? ''; // 👈 añadimos role
 
                         return _buildPronosticoCard(
                           context,
@@ -133,6 +123,7 @@ class _HomePageState extends State<HomePage> {
                           tipsterId,
                           nombreCanal,
                           fotoCanal,
+                          role,
                         );
                       },
                     );
@@ -164,8 +155,7 @@ class _HomePageState extends State<HomePage> {
           final canales = snapshot.data!.docs.where((doc) {
             final data = doc.data() as Map<String, dynamic>;
             final seguidores = List<String>.from(data['seguidores'] ?? []);
-            return seguidores
-                .contains(FirebaseAuth.instance.currentUser!.uid);
+            return seguidores.contains(FirebaseAuth.instance.currentUser!.uid);
           }).toList();
 
           if (canales.isEmpty) {
@@ -184,30 +174,28 @@ class _HomePageState extends State<HomePage> {
               final tipsterId = canales[index].id;
               final nombreCanal = c['nombre_canal'] ?? 'Canal';
               final fotoCanal = c['foto_canal'];
+              final role = c['role'] ?? ''; // 👈 añadimos role
 
               return ListTile(
                 tileColor: const Color(0xFF1E1E1E),
                 leading: CircleAvatar(
                   radius: 24,
-                  backgroundImage: fotoCanal != null
-                      ? NetworkImage(fotoCanal)
-                      : null,
+                  backgroundImage:
+                      fotoCanal != null ? NetworkImage(fotoCanal) : null,
                   child: fotoCanal == null
                       ? const Icon(Icons.person,
                           size: 28, color: Colors.white70)
                       : null,
                 ),
-                title: Text(
-                  nombreCanal,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold, color: Colors.white),
+                title: UserName( // 👈 usamos el widget global
+                  name: nombreCanal,
+                  role: role,
                 ),
                 onTap: () {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) =>
-                          TipsterChannelPage(tipsterId: tipsterId),
+                      builder: (_) => TipsterChannelPage(tipsterId: tipsterId),
                     ),
                   );
                 },
@@ -229,12 +217,12 @@ class _HomePageState extends State<HomePage> {
     String tipsterId,
     String nombreCanal,
     String? fotoCanal,
+    String role, // 👈 añadimos role
   ) {
     final stake = (p['stake'] is num)
         ? (p['stake'] as num).toDouble()
         : double.tryParse(p['stake'].toString()) ?? 0;
 
-    // Calcular confianza
     String confianza = "Baja";
     if (stake >= 1 && stake <= 2) {
       confianza = "Media";
@@ -271,13 +259,9 @@ class _HomePageState extends State<HomePage> {
                           : null,
                     ),
                     const SizedBox(width: 8),
-                    Text(
-                      nombreCanal,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white,
-                      ),
+                    UserName( // 👈 usamos el widget global aquí también
+                      name: nombreCanal,
+                      role: role,
                     ),
                   ],
                 ),
@@ -322,7 +306,6 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
                 const SizedBox(height: 8),
-
                 Text(
                   "${p['seleccion']}",
                   style: const TextStyle(
@@ -332,8 +315,6 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
                 const SizedBox(height: 12),
-
-                // 🔹 Foto del pronóstico (si existe)
                 if (p['imageUrl'] != null &&
                     (p['imageUrl'] as String).isNotEmpty)
                   Padding(
@@ -348,11 +329,8 @@ class _HomePageState extends State<HomePage> {
                       ),
                     ),
                   ),
-
-                // 🔹 Stake | Confianza | Cuota alineados
                 Row(
                   children: [
-                    // Stake
                     Expanded(
                       child: Container(
                         height: 60,
@@ -373,8 +351,6 @@ class _HomePageState extends State<HomePage> {
                         ),
                       ),
                     ),
-
-                    // Confianza
                     Expanded(
                       child: Container(
                         height: 60,
@@ -406,8 +382,6 @@ class _HomePageState extends State<HomePage> {
                         ),
                       ),
                     ),
-
-                    // Cuota
                     Expanded(
                       child: Container(
                         height: 60,
@@ -462,28 +436,20 @@ class _HomePageState extends State<HomePage> {
       appBar: AppBar(
         backgroundColor: const Color(0xFF1E1E1E),
         elevation: 0,
-        title: const Text(
-          "WINA APP",
-          style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
         centerTitle: true,
+        title: Image.asset(
+          "assets/images/logo.png",
+          height: 40,
+        ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.person, color: Colors.white),
+            icon: Icon(Icons.person, color: Colors.greenAccent[400]),
             onPressed: () {
               Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => const MiPerfilPage()),
               );
             },
-          ),
-          IconButton(
-            icon: const Icon(Icons.logout, color: Colors.white),
-            tooltip: "Cerrar sesión",
-            onPressed: () => _logout(context),
           ),
         ],
       ),
@@ -493,7 +459,7 @@ class _HomePageState extends State<HomePage> {
         onTap: _onItemTapped,
         backgroundColor: const Color(0xFF1E1E1E),
         selectedItemColor: Colors.greenAccent[400],
-        unselectedItemColor: Colors.white54,
+        unselectedItemColor: Colors.greenAccent[400]!.withOpacity(0.5),
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.sports_soccer),
