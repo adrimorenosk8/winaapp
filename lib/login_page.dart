@@ -12,8 +12,8 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   final _formKey = GlobalKey<FormState>();
-  final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
 
   bool _isLoading = false;
   bool _obscurePassword = true;
@@ -22,6 +22,12 @@ class _LoginPageState extends State<LoginPage> {
   int _attempts = 0;
   DateTime? _lockedUntil;
   Timer? _lockTimer;
+
+  // ---------- Estilo coherente con la app ----------
+  Color get _bg => const Color(0xFF121212);
+  Color get _card => const Color(0xFF1E1E1E);
+  Color get _accent => Colors.greenAccent[400]!;
+  Color get _muted => Colors.white70;
 
   @override
   void dispose() {
@@ -39,6 +45,7 @@ class _LoginPageState extends State<LoginPage> {
     if (v.isEmpty) return "Introduce tu correo";
     final regex = RegExp(r'^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$', caseSensitive: false);
     if (!regex.hasMatch(v)) return "Formato de correo inválido";
+    if (v.length > 254) return "Correo demasiado largo";
     return null;
   }
 
@@ -46,6 +53,7 @@ class _LoginPageState extends State<LoginPage> {
     final v = (value ?? '').trim();
     if (v.isEmpty) return "Introduce tu contraseña";
     if (v.length < 6) return "Mínimo 6 caracteres";
+    if (v.length > 128) return "Contraseña demasiado larga";
     return null;
   }
 
@@ -110,10 +118,8 @@ class _LoginPageState extends State<LoginPage> {
       String message = "❌ Error al iniciar sesión";
       switch (e.code) {
         case 'user-not-found':
-          // Mensaje genérico para no revelar si el correo existe
-          message = "Credenciales inválidas";
-          break;
         case 'wrong-password':
+        case 'invalid-credential': // alias moderno
           message = "Credenciales inválidas";
           break;
         case 'invalid-email':
@@ -124,6 +130,9 @@ class _LoginPageState extends State<LoginPage> {
           break;
         case 'too-many-requests':
           message = "Demasiados intentos, inténtalo más tarde";
+          break;
+        case 'operation-not-allowed':
+          message = "Método de acceso no habilitado";
           break;
         case 'network-request-failed':
           message = "Sin conexión. Revisa tu red";
@@ -151,13 +160,47 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  Future<void> _resetPassword() async {
+    final email = _normalizeEmail(_emailController.text);
+    if (_validateEmail(email) != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Introduce un correo válido primero")),
+      );
+      return;
+    }
+    try {
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Te enviamos un correo para restablecer la contraseña.")),
+      );
+    } on FirebaseAuthException catch (e) {
+      String msg = "No se pudo enviar el correo de restablecimiento.";
+      if (e.code == 'user-not-found') {
+        // Mantener mensaje genérico para no filtrar existencia de cuentas
+        msg = "Si el correo es válido, recibirás un mensaje con instrucciones.";
+      } else if (e.code == 'invalid-email') {
+        msg = "Formato de correo inválido.";
+      } else if (e.code == 'network-request-failed') {
+        msg = "Sin conexión. Revisa tu red.";
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Ocurrió un error enviando el correo.")),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final locked = _remainingLockSeconds();
     final isDisabled = _isLoading || locked > 0;
 
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: _bg,
       body: GestureDetector(
         onTap: () => FocusScope.of(context).unfocus(),
         child: Center(
@@ -170,10 +213,7 @@ class _LoginPageState extends State<LoginPage> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   // 🔹 Logo
-                  Image.asset(
-                    "assets/images/logo.png",
-                    height: 120,
-                  ),
+                  Image.asset("assets/images/logo.png", height: 120),
                   const SizedBox(height: 40),
 
                   // EMAIL
@@ -185,6 +225,7 @@ class _LoginPageState extends State<LoginPage> {
                     validator: _validateEmail,
                     textInputAction: TextInputAction.next,
                     autofillHints: const [AutofillHints.email],
+                    maxLength: 254,
                   ),
                   const SizedBox(height: 16),
 
@@ -205,32 +246,34 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                       onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                     ),
+                    maxLength: 128,
                   ),
-                  const SizedBox(height: 30),
+                  const SizedBox(height: 12),
+
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: isDisabled ? null : _resetPassword,
+                      child: Text("¿Olvidaste tu contraseña?", style: TextStyle(color: _accent)),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
 
                   // BOTÓN LOGIN
                   _isLoading
-                      ? const CircularProgressIndicator(color: Colors.green)
+                      ? const CircularProgressIndicator(color: Colors.greenAccent)
                       : SizedBox(
                           width: double.infinity,
                           child: ElevatedButton(
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: isDisabled ? Colors.green.withOpacity(0.5) : Colors.green,
+                              backgroundColor: isDisabled ? _accent.withOpacity(0.5) : _accent,
                               padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                             ),
                             onPressed: isDisabled ? null : _login,
                             child: Text(
-                              locked > 0
-                                  ? "Reintentar en ${locked}s"
-                                  : "Iniciar sesión",
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.black,
-                              ),
+                              locked > 0 ? "Reintentar en ${locked}s" : "Iniciar sesión",
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black),
                             ),
                           ),
                         ),
@@ -241,11 +284,9 @@ class _LoginPageState extends State<LoginPage> {
                     width: double.infinity,
                     child: OutlinedButton(
                       style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: Colors.green),
+                        side: BorderSide(color: _accent),
                         padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                       onPressed: isDisabled
                           ? null
@@ -255,13 +296,9 @@ class _LoginPageState extends State<LoginPage> {
                                 MaterialPageRoute(builder: (_) => const CreateAccPage()),
                               );
                             },
-                      child: const Text(
+                      child: Text(
                         "Crear cuenta",
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.green,
-                        ),
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: _accent),
                       ),
                     ),
                   ),
@@ -286,6 +323,7 @@ class _LoginPageState extends State<LoginPage> {
     Iterable<String>? autofillHints,
     void Function(String)? onFieldSubmitted,
     Widget? suffixIcon,
+    int? maxLength,
   }) {
     return TextFormField(
       controller: controller,
@@ -295,24 +333,26 @@ class _LoginPageState extends State<LoginPage> {
       textInputAction: textInputAction,
       onFieldSubmitted: onFieldSubmitted,
       autofillHints: autofillHints,
+      autocorrect: false,
+      enableSuggestions: !obscure,
+      maxLength: maxLength,
+      buildCounter: (_, {required int currentLength, required bool isFocused, int? maxLength}) => null,
       style: const TextStyle(color: Colors.white),
       decoration: InputDecoration(
         labelText: label,
         labelStyle: const TextStyle(color: Colors.white70),
-        prefixIcon: Icon(icon, color: Colors.green),
+        prefixIcon: Icon(icon, color: _accent),
         suffixIcon: suffixIcon,
         filled: true,
-        fillColor: Colors.grey[900],
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
+        fillColor: _card,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: Colors.green),
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: _accent),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: Colors.green, width: 2),
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: _accent, width: 2),
         ),
       ),
     );

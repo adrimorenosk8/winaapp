@@ -21,7 +21,7 @@ class TipsterChannelInfo extends StatelessWidget {
     this.canalId,
   });
 
-  /// ---------- Helpers seguros ----------
+  // ---------- Helpers seguros ----------
   static double _toDouble(dynamic val) {
     if (val is num) return val.toDouble();
     if (val is String) return double.tryParse(val.replaceAll(',', '.')) ?? 0.0;
@@ -44,61 +44,83 @@ class TipsterChannelInfo extends StatelessWidget {
     return count.toString();
   }
 
-  /// ---------- Stats stream que respeta reglas ----------
+  /// ---------- Stats stream que respeta tus reglas ----------
   ///
-  /// - Dueño o seguidor: puede leer `pronostico` (todos) y `resultado`.
-  /// - No seguidor: solo `pronostico` con `status='open'` (los `resultado` no son públicos).
+  /// - No seguidor/ni dueño: cuenta solo `pronostico` con `status='open'`. No lee resultados.
+  /// - Dueño o seguidor o canal público: puede leer también `apuesta_resuelta` (top-level).
   Stream<Map<String, dynamic>> getStatsStream() {
     final db = FirebaseFirestore.instance;
 
-    // Si no hay tipsterId, devolver stats vacías
+    // Si no hay tipsterId, devolvemos stats vacías
     if (tipsterId == null || tipsterId!.isEmpty) {
       return Stream.value({
-        "apuestas": 0, "acierto": 0.0, "stake": 0.0, "cuota": 0.0,
-        "unidades": 0.0, "yield": 0.0, "seguidores": 0,
+        "apuestas": 0,
+        "acierto": 0.0,
+        "stake": 0.0,
+        "cuota": 0.0,
+        "unidades": 0.0,
+        "yield": 0.0,
+        "seguidores": 0,
       });
     }
 
     final currentUid = FirebaseAuth.instance.currentUser?.uid;
-    final canalRef = db.collection("canales").doc(canalId ?? tipsterId!);
+    final String canalDocId = (canalId ?? tipsterId!) ;
+    final canalRef = db.collection("canales").doc(canalDocId);
     final postsCol = db.collection("canales").doc(tipsterId!).collection("posts");
 
-    // Canal -> para saber seguidores y decidir filtros
+    // 1) Canal -> seguidores / isPublic / decidir filtros
     final canalStream = canalRef.snapshots();
 
-    // Pronósticos visibles según rol (dueño/seguidor vs público)
+    // 2) Pronósticos visibles según relación (para evitar permission-denied)
     final pronosStream = canalStream.switchMap((canalDoc) {
       final data = (canalDoc.data() as Map<String, dynamic>?) ?? {};
-      final seguidores = (data['seguidores'] is List) ? List<String>.from(data['seguidores']) : <String>[];
+      final seguidores = (data['seguidores'] is List)
+          ? List<String>.from(data['seguidores'])
+          : <String>[];
       final isOwner = currentUid == tipsterId;
       final isFollower = currentUid != null && seguidores.contains(currentUid);
 
-      Query<Map<String, dynamic>> q = postsCol.where('type', isEqualTo: 'pronostico');
+      Query<Map<String, dynamic>> q =
+          postsCol.where('type', isEqualTo: 'pronostico');
+
+      // Usuarios sin permiso total -> limitar a abiertos
       if (!(isOwner || isFollower)) {
-        // Solo pronósticos abiertos para no seguidores (cumple reglas)
         q = q.where('status', isEqualTo: 'open');
       }
+
       return q.snapshots().map((snap) => snap.docs.map((d) => d.data()).toList());
     });
 
-    // Resultados visibles solo para dueño/seguidor
+    // 3) Resultados desde top-level apuesta_resuelta (con control para no provocar errores de permisos)
     final resultadosStream = canalStream.switchMap((canalDoc) {
       final data = (canalDoc.data() as Map<String, dynamic>?) ?? {};
-      final seguidores = (data['seguidores'] is List) ? List<String>.from(data['seguidores']) : <String>[];
+      final seguidores = (data['seguidores'] is List)
+          ? List<String>.from(data['seguidores'])
+          : <String>[];
       final isOwner = currentUid == tipsterId;
       final isFollower = currentUid != null && seguidores.contains(currentUid);
+      final isPublic = (data.containsKey('isPublic')) ? (data['isPublic'] == true) : true;
 
-      if (!(isOwner || isFollower)) {
-        // No seguidores: no pueden leer resultados
+      // Tus reglas permiten leer apuesta_resuelta si:
+      // - dueño/admin, o
+      // - canal público (isPublic==true), o
+      // - seguidor
+      final puedeLeerResultados = isOwner || isFollower || isPublic;
+
+      if (!puedeLeerResultados) {
         return Stream.value(<Map<String, dynamic>>[]);
       }
-      return postsCol
-          .where('type', isEqualTo: 'resultado')
+
+      // Consulta segura: top-level, filtrando por uid del tipster
+      return db
+          .collection("apuesta_resuelta")
+          .where("uid", isEqualTo: tipsterId!)
           .snapshots()
           .map((snap) => snap.docs.map((d) => d.data()).toList());
     });
 
-    // Combinamos: canal + pronos visibles + resultados visibles
+    // 4) Combinamos: canal + pronos + resultados
     return CombineLatestStream.combine3<
         DocumentSnapshot<Map<String, dynamic>>,
         List<Map<String, dynamic>>,
@@ -111,7 +133,7 @@ class TipsterChannelInfo extends StatelessWidget {
         final canalData = canalDoc.data() ?? {};
         final seguidoresNum = _toInt(canalData['numero_seguidores']);
 
-        // Stake/cuota medios sobre los pronósticos visibles
+        // Stake/Cuota medios sobre los pronósticos visibles
         double totalStake = 0;
         double totalCuota = 0;
         int nPronos = 0;
@@ -125,7 +147,7 @@ class TipsterChannelInfo extends StatelessWidget {
         final stakeMedio = nPronos > 0 ? totalStake / nPronos : 0.0;
         final cuotaMedia = nPronos > 0 ? totalCuota / nPronos : 0.0;
 
-        // Stats de resultados (solo dueño/seguidor tendrá datos)
+        // Stats de resultados (sólo si la query estuvo permitida)
         int ganadas = 0, perdidas = 0;
         double unidades = 0.0;
         for (final r in resultados) {
@@ -156,7 +178,6 @@ class TipsterChannelInfo extends StatelessWidget {
   Widget build(BuildContext context) {
     final currentUid = FirebaseAuth.instance.currentUser?.uid;
     final esPropietario = (currentUid == tipsterId);
-
     final fotoUrl = (foto ?? '').trim();
 
     return Scaffold(
@@ -188,8 +209,14 @@ class TipsterChannelInfo extends StatelessWidget {
         builder: (context, snapshot) {
           if (snapshot.hasError) {
             return Center(
-              child: Text("❌ Error: ${snapshot.error}",
-                  style: const TextStyle(color: Colors.red)),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  "No tienes permisos para ver parte de las estadísticas.",
+                  style: const TextStyle(color: Colors.white70),
+                  textAlign: TextAlign.center,
+                ),
+              ),
             );
           }
           if (!snapshot.hasData) {
@@ -212,7 +239,6 @@ class TipsterChannelInfo extends StatelessWidget {
                             radius: 50,
                             backgroundImage: NetworkImage(fotoUrl),
                             onBackgroundImageError: (_, __) {},
-                            child: null,
                           )
                         : const CircleAvatar(
                             radius: 50,
@@ -245,7 +271,10 @@ class TipsterChannelInfo extends StatelessWidget {
                   Text(
                     "$seguidores Seguidores",
                     style: const TextStyle(
-                        fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white),
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
                   ),
                   const SizedBox(height: 25),
 

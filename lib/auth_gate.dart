@@ -1,3 +1,4 @@
+// auth_gate.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -7,11 +8,6 @@ import 'login_page.dart';
 import 'tipster_main.dart';
 import 'create_channel_page.dart';
 
-/// Puerta de autenticación + resolución de rol + salto a Tipster/Home.
-/// - Autocreación de users/{uid} con role: "user" si no existiera.
-/// - Manejo de errores (incl. permission-denied) con mensajes claros.
-/// - Logs útiles para depurar.
-/// - Comentarios de seguridad para futuras sanitizaciones.
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
 
@@ -58,7 +54,7 @@ class _UserRoleGateState extends State<_UserRoleGate> {
   }
 
   /// Crea users/{uid} si no existe, con role: "user".
-  /// Compatible con las reglas (no permite establecer role elevado).
+  /// Compatible con las reglas: no permite elevar rol.
   Future<void> _ensureUserDoc() async {
     try {
       final snap = await _userRef.get();
@@ -96,8 +92,10 @@ class _UserRoleGateState extends State<_UserRoleGate> {
           return _ErrorScaffold(
             title: "No se puede preparar tu perfil",
             message: _friendlyError(err),
-            action: _SignOutButton(onDone: () {
-              FirebaseAuth.instance.signOut();
+            action: _SignOutButton(onDone: () async {
+              try {
+                await FirebaseAuth.instance.signOut();
+              } catch (_) {}
             }),
           );
         }
@@ -114,8 +112,10 @@ class _UserRoleGateState extends State<_UserRoleGate> {
               return _ErrorScaffold(
                 title: "No se puede leer tu perfil",
                 message: _friendlyError(userSnapshot.error),
-                action: _SignOutButton(onDone: () {
-                  FirebaseAuth.instance.signOut();
+                action: _SignOutButton(onDone: () async {
+                  try {
+                    await FirebaseAuth.instance.signOut();
+                  } catch (_) {}
                 }),
               );
             }
@@ -132,12 +132,11 @@ class _UserRoleGateState extends State<_UserRoleGate> {
             final roleRaw = data['role'];
             final role = (roleRaw ?? 'user').toString().toLowerCase().trim();
 
-            // Seguridad defensiva: acotar posibles valores de role
+            // Seguridad defensiva: solo roles conocidos
             const allowedRoles = {'user', 'tipster'};
             final effectiveRole = allowedRoles.contains(role) ? role : 'user';
 
-            debugPrint("🎭 Campo role en Firestore: $roleRaw");
-            debugPrint("🎭 Rol normalizado: '$role' → efectivo: '$effectiveRole'");
+            debugPrint("🎭 role raw: $roleRaw → efectivo: '$effectiveRole'");
 
             // 👑 Caso tipster
             if (effectiveRole == 'tipster') {
@@ -173,8 +172,10 @@ class _TipsterGate extends StatelessWidget {
           return _ErrorScaffold(
             title: "No se puede acceder a tu canal",
             message: _friendlyError(canalSnapshot.error),
-            action: _SignOutButton(onDone: () {
-              FirebaseAuth.instance.signOut();
+            action: _SignOutButton(onDone: () async {
+              try {
+                await FirebaseAuth.instance.signOut();
+              } catch (_) {}
             }),
           );
         }
@@ -186,8 +187,7 @@ class _TipsterGate extends StatelessWidget {
           return const TipsterMainPage();
         } else {
           debugPrint("🆕 No existe canal en 'canales/$uid' → CreateChannelPage");
-          // IMPORTANTE: CreateChannelPage debe crear canales/{uid} con:
-          // { ownerId: uid, ... } para pasar las reglas.
+          // CreateChannelPage debe crear canales/{uid} con: { idTipster: uid, ... }
           return CreateChannelPage(
             uid: uid,
             email: FirebaseAuth.instance.currentUser?.email ?? '',
@@ -203,8 +203,11 @@ class _LoadingScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
-      body: Center(child: CircularProgressIndicator()),
+    return Scaffold(
+      backgroundColor: const Color(0xFF121212),
+      body: const Center(
+        child: CircularProgressIndicator(color: Colors.greenAccent),
+      ),
     );
   }
 }
@@ -223,22 +226,29 @@ class _ErrorScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFF121212),
       body: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.lock_outline, size: 48),
-                const SizedBox(height: 16),
-                Text(title, style: Theme.of(context).textTheme.titleLarge, textAlign: TextAlign.center),
-                const SizedBox(height: 8),
-                Text(message, style: Theme.of(context).textTheme.bodyMedium, textAlign: TextAlign.center),
-                const SizedBox(height: 16),
-                if (action != null) action!,
-              ],
+          constraints: const BoxConstraints(maxWidth: 460),
+          child: Card(
+            color: const Color(0xFF1E1E1E),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.lock_outline, size: 48, color: Colors.white70),
+                  const SizedBox(height: 16),
+                  Text(title,
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                      textAlign: TextAlign.center),
+                  const SizedBox(height: 8),
+                  Text(message, style: const TextStyle(color: Colors.white70), textAlign: TextAlign.center),
+                  const SizedBox(height: 16),
+                  if (action != null) SizedBox(width: double.infinity, child: action!),
+                ],
+              ),
             ),
           ),
         ),
@@ -254,6 +264,13 @@ class _SignOutButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ElevatedButton.icon(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Colors.redAccent,
+        foregroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+        textStyle: const TextStyle(fontWeight: FontWeight.w600),
+      ),
       onPressed: onDone,
       icon: const Icon(Icons.logout),
       label: const Text("Cerrar sesión"),
@@ -261,7 +278,6 @@ class _SignOutButton extends StatelessWidget {
   }
 }
 
-/// Traducción de errores típicos a un mensaje legible.
 String _friendlyError(Object? err) {
   if (err is FirebaseException) {
     if (err.code == 'permission-denied') {

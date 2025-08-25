@@ -1,3 +1,4 @@
+// tipster_page.dart
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -747,6 +748,19 @@ class _TipsterPageState extends State<TipsterPage> {
     }
   }
 
+  // Tema oscuro para menús contextuales (texto blanco)
+  Theme _menuTheme(BuildContext context, Widget child) {
+    return Theme(
+      data: Theme.of(context).copyWith(
+        popupMenuTheme: const PopupMenuThemeData(
+          color: kFieldBg,
+          textStyle: TextStyle(color: Colors.white),
+        ),
+      ),
+      child: child,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
@@ -789,6 +803,7 @@ class _TipsterPageState extends State<TipsterPage> {
               },
               child: Row(
                 children: [
+                  if (_isValidHttpUrl(foto)) const SizedBox(width: 0),
                   if (_isValidHttpUrl(foto)) CircleAvatar(backgroundImage: NetworkImage(foto))
                   else const CircleAvatar(child: Icon(Icons.person)),
                   const SizedBox(width: 8),
@@ -901,7 +916,7 @@ class _TipsterPageState extends State<TipsterPage> {
                               crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
                                 Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Expanded(
                                       child: Text(
@@ -909,47 +924,49 @@ class _TipsterPageState extends State<TipsterPage> {
                                         style: const TextStyle(color: Colors.white),
                                       ),
                                     ),
-                                    PopupMenuButton<String>(
-                                      color: kFieldBg,
-                                      onSelected: (value) {
-                                        if (value == 'delete') {
-                                          _borrarPost(postId);
-                                        } else if (value == 'edit') {
-                                          final ctrl = TextEditingController(text: data['content']);
-                                          showDialog(
-                                            context: context,
-                                            builder: (ctx) => AlertDialog(
-                                              backgroundColor: kFieldBg,
-                                              title: const Text("Editar mensaje", style: TextStyle(color: Colors.white)),
-                                              content: TextField(
-                                                controller: ctrl,
-                                                style: const TextStyle(color: Colors.white),
-                                                inputFormatters: [LengthLimitingTextInputFormatter(500)],
-                                                decoration: _decor("Mensaje", Icons.edit),
+                                    _menuTheme(
+                                      context,
+                                      PopupMenuButton<String>(
+                                        onSelected: (value) {
+                                          if (value == 'delete') {
+                                            _borrarPost(postId);
+                                          } else if (value == 'edit') {
+                                            final ctrl = TextEditingController(text: data['content']);
+                                            showDialog(
+                                              context: context,
+                                              builder: (ctx) => AlertDialog(
+                                                backgroundColor: kFieldBg,
+                                                title: const Text("Editar mensaje", style: TextStyle(color: Colors.white)),
+                                                content: TextField(
+                                                  controller: ctrl,
+                                                  style: const TextStyle(color: Colors.white),
+                                                  inputFormatters: [LengthLimitingTextInputFormatter(500)],
+                                                  decoration: _decor("Mensaje", Icons.edit),
+                                                ),
+                                                actions: [
+                                                  TextButton(
+                                                    onPressed: () => Navigator.pop(ctx),
+                                                    child: const Text("Cancelar"),
+                                                  ),
+                                                  ElevatedButton(
+                                                    style: ElevatedButton.styleFrom(
+                                                      backgroundColor: kPrimaryGreen, foregroundColor: Colors.black),
+                                                    onPressed: () {
+                                                      _editarPost(postId, {"content": _sanitizeText(ctrl.text)});
+                                                      Navigator.pop(ctx);
+                                                    },
+                                                    child: const Text("Guardar"),
+                                                  ),
+                                                ],
                                               ),
-                                              actions: [
-                                                TextButton(
-                                                  onPressed: () => Navigator.pop(ctx),
-                                                  child: const Text("Cancelar"),
-                                                ),
-                                                ElevatedButton(
-                                                  style: ElevatedButton.styleFrom(
-                                                    backgroundColor: kPrimaryGreen, foregroundColor: Colors.black),
-                                                  onPressed: () {
-                                                    _editarPost(postId, {"content": _sanitizeText(ctrl.text)});
-                                                    Navigator.pop(ctx);
-                                                  },
-                                                  child: const Text("Guardar"),
-                                                ),
-                                              ],
-                                            ),
-                                          );
-                                        }
-                                      },
-                                      itemBuilder: (context) => const [
-                                        PopupMenuItem(value: 'edit', child: Text("✏️ Editar")),
-                                        PopupMenuItem(value: 'delete', child: Text("🗑️ Eliminar")),
-                                      ],
+                                            );
+                                          }
+                                        },
+                                        itemBuilder: (context) => const [
+                                          PopupMenuItem(value: 'edit', child: Text("✏️ Editar")),
+                                          PopupMenuItem(value: 'delete', child: Text("🗑️ Eliminar")),
+                                        ],
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -980,34 +997,40 @@ class _TipsterPageState extends State<TipsterPage> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(
-                                      "Selección: ${data['seleccion'] ?? ''}",
-                                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                                    Expanded(
+                                      child: Text(
+                                        "Selección: ${data['seleccion'] ?? ''}",
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                                      ),
                                     ),
-                                    PopupMenuButton<String>(
-                                      color: kFieldBg,
-                                      onSelected: (value) async {
-                                        if (value == 'delete') {
-                                          _borrarPost(postId);
-                                        } else if (value == 'edit') {
-                                          _sport.text = data['sport'] ?? '';
-                                          _evento.text = data['evento'] ?? '';
-                                          _seleccion.text = data['seleccion'] ?? '';
-                                          _cuota.text = data['cuota'].toString();
-                                          _stake.text = (data['stake'] as num?)?.toDouble().toString() ?? '';
-                                          _abrirFormularioPronostico(); // crea uno nuevo reusando UI
-                                        } else if (value == 'won' || value == 'lost') {
-                                          await _resolverPronostico(postId, data, value);
-                                        }
-                                      },
-                                      itemBuilder: (context) => const [
-                                        PopupMenuItem(value: 'edit', child: Text("✏️ Editar")),
-                                        PopupMenuItem(value: 'delete', child: Text("🗑️ Eliminar")),
-                                        PopupMenuItem(value: 'won', child: Text("✅ Acertada")),
-                                        PopupMenuItem(value: 'lost', child: Text("❌ Fallada")),
-                                      ],
+                                    _menuTheme(
+                                      context,
+                                      PopupMenuButton<String>(
+                                        onSelected: (value) async {
+                                          if (value == 'delete') {
+                                            _borrarPost(postId);
+                                          } else if (value == 'edit') {
+                                            _sport.text = data['sport'] ?? '';
+                                            _evento.text = data['evento'] ?? '';
+                                            _seleccion.text = data['seleccion'] ?? '';
+                                            _cuota.text = data['cuota'].toString();
+                                            _stake.text = (data['stake'] as num?)?.toDouble().toString() ?? '';
+                                            _abrirFormularioPronostico(); // crea uno nuevo reusando UI
+                                          } else if (value == 'won' || value == 'lost') {
+                                            await _resolverPronostico(postId, data, value);
+                                          }
+                                        },
+                                        itemBuilder: (context) => const [
+                                          PopupMenuItem(value: 'edit', child: Text("✏️ Editar")),
+                                          PopupMenuItem(value: 'delete', child: Text("🗑️ Eliminar")),
+                                          PopupMenuItem(value: 'won', child: Text("✅ Acertada")),
+                                          PopupMenuItem(value: 'lost', child: Text("❌ Fallada")),
+                                        ],
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -1039,10 +1062,7 @@ class _TipsterPageState extends State<TipsterPage> {
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
-                                    if (fecha.isNotEmpty)
-                                      const SizedBox.shrink()
-                                    else
-                                      const SizedBox.shrink(),
+                                    const SizedBox.shrink(),
                                     Row(
                                       children: [
                                         if (data['status'] == 'won')
@@ -1106,30 +1126,32 @@ class _TipsterPageState extends State<TipsterPage> {
                                     color: positivo ? kPrimaryGreen : Colors.redAccent,
                                   ),
                                 ),
-                                PopupMenuButton<String>(
-                                  color: kFieldBg,
-                                  onSelected: (value) async {
-                                    if (value == 'delete') {
-                                      await _borrarPost(postId);
-                                    } else if (value == 'won' || value == 'lost') {
-                                      final snap = await FirebaseFirestore.instance
-                                          .collection('canales')
-                                          .doc(user.uid)
-                                          .collection('posts')
-                                          .doc(data['postId'])
-                                          .get();
+                                _menuTheme(
+                                  context,
+                                  PopupMenuButton<String>(
+                                    onSelected: (value) async {
+                                      if (value == 'delete') {
+                                        await _borrarPost(postId);
+                                      } else if (value == 'won' || value == 'lost') {
+                                        final snap = await FirebaseFirestore.instance
+                                            .collection('canales')
+                                            .doc(user.uid)
+                                            .collection('posts')
+                                            .doc(data['postId'])
+                                            .get();
 
-                                      if (snap.exists) {
-                                        final p = snap.data() as Map<String, dynamic>;
-                                        await _resolverPronostico(data['postId'], p, value);
+                                        if (snap.exists) {
+                                          final p = snap.data() as Map<String, dynamic>;
+                                          await _resolverPronostico(data['postId'], p, value);
+                                        }
                                       }
-                                    }
-                                  },
-                                  itemBuilder: (context) => const [
-                                    PopupMenuItem(value: 'won', child: Text("✅ Marcar como Acertada")),
-                                    PopupMenuItem(value: 'lost', child: Text("❌ Marcar como Fallada")),
-                                    PopupMenuItem(value: 'delete', child: Text("🗑️ Eliminar")),
-                                  ],
+                                    },
+                                    itemBuilder: (context) => const [
+                                      PopupMenuItem(value: 'won', child: Text("✅ Marcar como Acertada")),
+                                      PopupMenuItem(value: 'lost', child: Text("❌ Marcar como Fallada")),
+                                      PopupMenuItem(value: 'delete', child: Text("🗑️ Eliminar")),
+                                    ],
+                                  ),
                                 ),
                               ],
                             ),
