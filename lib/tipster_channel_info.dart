@@ -21,108 +21,143 @@ class TipsterChannelInfo extends StatelessWidget {
     this.canalId,
   });
 
-  /// 🔹 Stream con stats combinadas de apuesta_resuelta, posts, user y canal
-  Stream<Map<String, dynamic>> getStatsStream() {
-    final db = FirebaseFirestore.instance;
-
-    final apuestasStream = db
-        .collection("apuesta_resuelta")
-        .where("uid", isEqualTo: tipsterId)
-        .snapshots();
-
-    final postsStream = db
-        .collection("canales")
-        .doc(tipsterId)
-        .collection("posts")
-        .where("tipsterId", isEqualTo: tipsterId)
-        .snapshots();
-
-    final userStream = db.collection("users").doc(tipsterId).snapshots();
-
-    final canalStream = db.collection("canales").doc(tipsterId).snapshots();
-
-    return CombineLatestStream.combine4(
-      apuestasStream,
-      postsStream,
-      userStream,
-      canalStream,
-      (QuerySnapshot apuestasSnap, QuerySnapshot postsSnap,
-          DocumentSnapshot userDoc, DocumentSnapshot canalDoc) {
-        int totalApuestas = apuestasSnap.docs.length;
-        int ganadas = 0;
-        int perdidas = 0;
-
-        for (var doc in apuestasSnap.docs) {
-          final data = doc.data() as Map<String, dynamic>;
-          if (data["status"] == "won") ganadas++;
-          if (data["status"] == "lost") perdidas++;
-        }
-
-        double porcentajeAcierto =
-            (ganadas + perdidas) > 0 ? (ganadas / (ganadas + perdidas)) * 100 : 0;
-
-        double totalStake = 0;
-        double totalCuota = 0;
-        int totalPosts = 0;
-
-        for (var doc in postsSnap.docs) {
-          final data = doc.data() as Map<String, dynamic>;
-          final stake = (data["stake"] is num)
-              ? (data["stake"] as num).toDouble()
-              : double.tryParse("${data["stake"]}") ?? 0.0;
-          final cuota = (data["cuota"] is num)
-              ? (data["cuota"] as num).toDouble()
-              : double.tryParse("${data["cuota"]}") ?? 0.0;
-
-          totalStake += stake;
-          totalCuota += cuota;
-          totalPosts++;
-        }
-
-        double stakeMedio = totalPosts > 0 ? totalStake / totalPosts : 0;
-        double cuotaMedia = totalPosts > 0 ? totalCuota / totalPosts : 0;
-
-        final unidadesField =
-            (userDoc.data() as Map<String, dynamic>?)?["unidades"];
-        double unidades = (unidadesField is num)
-            ? unidadesField.toDouble()
-            : double.tryParse("$unidadesField") ?? 0.0;
-
-        double yield = totalStake > 0 ? (unidades / totalStake) * 100 : 0;
-
-        final canalData = canalDoc.data() as Map<String, dynamic>?;
-        int seguidores = canalData?["numero_seguidores"] is num
-            ? (canalData?["numero_seguidores"] as num).toInt()
-            : 0;
-
-        return {
-          "apuestas": totalApuestas,
-          "acierto": porcentajeAcierto,
-          "stake": stakeMedio,
-          "cuota": cuotaMedia,
-          "unidades": unidades,
-          "yield": yield,
-          "seguidores": seguidores,
-        };
-      },
-    );
+  /// ---------- Helpers seguros ----------
+  static double _toDouble(dynamic val) {
+    if (val is num) return val.toDouble();
+    if (val is String) return double.tryParse(val.replaceAll(',', '.')) ?? 0.0;
+    return 0.0;
   }
 
-  /// 🔹 Formato para abreviar seguidores
+  static int _toInt(dynamic val) {
+    if (val is int) return val;
+    if (val is num) return val.toInt();
+    if (val is String) return int.tryParse(val) ?? 0;
+    return 0;
+  }
+
   String formatFollowers(int count) {
-    if (count >= 1000000) {
-      return "${(count / 1000000).toStringAsFixed(1)}M";
-    } else if (count >= 1000) {
-      double k = count / 1000;
+    if (count >= 1000000) return "${(count / 1000000).toStringAsFixed(1)}M";
+    if (count >= 1000) {
+      final k = count / 1000;
       return k % 1 == 0 ? "${k.toInt()}k" : "${k.toStringAsFixed(1)}k";
     }
     return count.toString();
+  }
+
+  /// ---------- Stats stream que respeta reglas ----------
+  ///
+  /// - Dueño o seguidor: puede leer `pronostico` (todos) y `resultado`.
+  /// - No seguidor: solo `pronostico` con `status='open'` (los `resultado` no son públicos).
+  Stream<Map<String, dynamic>> getStatsStream() {
+    final db = FirebaseFirestore.instance;
+
+    // Si no hay tipsterId, devolver stats vacías
+    if (tipsterId == null || tipsterId!.isEmpty) {
+      return Stream.value({
+        "apuestas": 0, "acierto": 0.0, "stake": 0.0, "cuota": 0.0,
+        "unidades": 0.0, "yield": 0.0, "seguidores": 0,
+      });
+    }
+
+    final currentUid = FirebaseAuth.instance.currentUser?.uid;
+    final canalRef = db.collection("canales").doc(canalId ?? tipsterId!);
+    final postsCol = db.collection("canales").doc(tipsterId!).collection("posts");
+
+    // Canal -> para saber seguidores y decidir filtros
+    final canalStream = canalRef.snapshots();
+
+    // Pronósticos visibles según rol (dueño/seguidor vs público)
+    final pronosStream = canalStream.switchMap((canalDoc) {
+      final data = (canalDoc.data() as Map<String, dynamic>?) ?? {};
+      final seguidores = (data['seguidores'] is List) ? List<String>.from(data['seguidores']) : <String>[];
+      final isOwner = currentUid == tipsterId;
+      final isFollower = currentUid != null && seguidores.contains(currentUid);
+
+      Query<Map<String, dynamic>> q = postsCol.where('type', isEqualTo: 'pronostico');
+      if (!(isOwner || isFollower)) {
+        // Solo pronósticos abiertos para no seguidores (cumple reglas)
+        q = q.where('status', isEqualTo: 'open');
+      }
+      return q.snapshots().map((snap) => snap.docs.map((d) => d.data()).toList());
+    });
+
+    // Resultados visibles solo para dueño/seguidor
+    final resultadosStream = canalStream.switchMap((canalDoc) {
+      final data = (canalDoc.data() as Map<String, dynamic>?) ?? {};
+      final seguidores = (data['seguidores'] is List) ? List<String>.from(data['seguidores']) : <String>[];
+      final isOwner = currentUid == tipsterId;
+      final isFollower = currentUid != null && seguidores.contains(currentUid);
+
+      if (!(isOwner || isFollower)) {
+        // No seguidores: no pueden leer resultados
+        return Stream.value(<Map<String, dynamic>>[]);
+      }
+      return postsCol
+          .where('type', isEqualTo: 'resultado')
+          .snapshots()
+          .map((snap) => snap.docs.map((d) => d.data()).toList());
+    });
+
+    // Combinamos: canal + pronos visibles + resultados visibles
+    return CombineLatestStream.combine3<
+        DocumentSnapshot<Map<String, dynamic>>,
+        List<Map<String, dynamic>>,
+        List<Map<String, dynamic>>,
+        Map<String, dynamic>>(
+      canalStream,
+      pronosStream,
+      resultadosStream,
+      (canalDoc, pronos, resultados) {
+        final canalData = canalDoc.data() ?? {};
+        final seguidoresNum = _toInt(canalData['numero_seguidores']);
+
+        // Stake/cuota medios sobre los pronósticos visibles
+        double totalStake = 0;
+        double totalCuota = 0;
+        int nPronos = 0;
+
+        for (final p in pronos) {
+          totalStake += _toDouble(p['stake']);
+          totalCuota += _toDouble(p['cuota']);
+          nPronos++;
+        }
+
+        final stakeMedio = nPronos > 0 ? totalStake / nPronos : 0.0;
+        final cuotaMedia = nPronos > 0 ? totalCuota / nPronos : 0.0;
+
+        // Stats de resultados (solo dueño/seguidor tendrá datos)
+        int ganadas = 0, perdidas = 0;
+        double unidades = 0.0;
+        for (final r in resultados) {
+          final status = (r['status'] ?? '').toString().toLowerCase().trim();
+          if (status == 'won') ganadas++;
+          if (status == 'lost') perdidas++;
+          unidades += _toDouble(r['resolucion']);
+        }
+
+        final totalApuestas = ganadas + perdidas;
+        final acierto = totalApuestas > 0 ? (ganadas / totalApuestas) * 100.0 : 0.0;
+        final yieldPct = totalStake > 0 ? (unidades / totalStake) * 100.0 : 0.0;
+
+        return {
+          "apuestas": totalApuestas,
+          "acierto": acierto,
+          "stake": stakeMedio,
+          "cuota": cuotaMedia,
+          "unidades": unidades,
+          "yield": yieldPct,
+          "seguidores": seguidoresNum,
+        };
+      },
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final currentUid = FirebaseAuth.instance.currentUser?.uid;
     final esPropietario = (currentUid == tipsterId);
+
+    final fotoUrl = (foto ?? '').trim();
 
     return Scaffold(
       appBar: AppBar(
@@ -140,7 +175,7 @@ class TipsterChannelInfo extends StatelessWidget {
                       canalId: canalId ?? tipsterId!,
                       nombre: nombre,
                       descripcion: descripcion,
-                      foto: foto ?? "",
+                      foto: fotoUrl,
                     ),
                   ),
                 );
@@ -151,12 +186,18 @@ class TipsterChannelInfo extends StatelessWidget {
       body: StreamBuilder<Map<String, dynamic>>(
         stream: getStatsStream(),
         builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return Center(
+              child: Text("❌ Error: ${snapshot.error}",
+                  style: const TextStyle(color: Colors.red)),
+            );
+          }
           if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
 
           final stats = snapshot.data!;
-          final seguidores = formatFollowers(stats["seguidores"]);
+          final seguidores = formatFollowers(_toInt(stats["seguidores"]));
 
           return Padding(
             padding: const EdgeInsets.all(16.0),
@@ -164,12 +205,14 @@ class TipsterChannelInfo extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  // 📌 Foto centrada
+                  // Foto
                   Center(
-                    child: foto != null && foto!.isNotEmpty
+                    child: (fotoUrl.isNotEmpty)
                         ? CircleAvatar(
                             radius: 50,
-                            backgroundImage: NetworkImage(foto!),
+                            backgroundImage: NetworkImage(fotoUrl),
+                            onBackgroundImageError: (_, __) {},
+                            child: null,
                           )
                         : const CircleAvatar(
                             radius: 50,
@@ -177,8 +220,11 @@ class TipsterChannelInfo extends StatelessWidget {
                           ),
                   ),
                   const SizedBox(height: 20),
+
+                  // Nombre
                   Text(
                     nombre,
+                    textAlign: TextAlign.center,
                     style: const TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
@@ -186,25 +232,23 @@ class TipsterChannelInfo extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 10),
+
+                  // Descripción
                   Text(
-                    descripcion.isNotEmpty
-                        ? descripcion
-                        : "Sin descripción disponible.",
+                    descripcion.isNotEmpty ? descripcion : "Sin descripción disponible.",
                     textAlign: TextAlign.center,
                     style: const TextStyle(fontSize: 16, color: Colors.white70),
                   ),
                   const SizedBox(height: 10),
-                  // 📌 Seguidores
+
+                  // Seguidores
                   Text(
                     "$seguidores Seguidores",
                     style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white),
+                        fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white),
                   ),
                   const SizedBox(height: 25),
 
-                  // 📌 Sección de estadísticas
                   Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
@@ -227,17 +271,12 @@ class TipsterChannelInfo extends StatelessWidget {
                     crossAxisSpacing: 12,
                     mainAxisSpacing: 12,
                     children: [
-                      statItem("Apuestas", "${stats["apuestas"]}"),
-                      statItem("Acierto %",
-                          "${stats["acierto"].toStringAsFixed(2)}%"),
-                      statItem("Stake medio",
-                          "${stats["stake"].toStringAsFixed(2)}"),
-                      statItem("Cuota media",
-                          "${stats["cuota"].toStringAsFixed(2)}"),
-                      statItem("Unidades",
-                          "${stats["unidades"].toStringAsFixed(2)}"),
-                      statItem("Yield %",
-                          "${stats["yield"].toStringAsFixed(2)}%"),
+                      statItem("Apuestas", "${_toInt(stats["apuestas"])}"),
+                      statItem("Acierto %", "${(_toDouble(stats["acierto"])).toStringAsFixed(2)}%"),
+                      statItem("Stake medio", "${(_toDouble(stats["stake"])).toStringAsFixed(2)}"),
+                      statItem("Cuota media", "${(_toDouble(stats["cuota"])).toStringAsFixed(2)}"),
+                      statItem("Unidades", "${(_toDouble(stats["unidades"])).toStringAsFixed(2)}"),
+                      statItem("Yield %", "${(_toDouble(stats["yield"])).toStringAsFixed(2)}%"),
                     ],
                   ),
                 ],

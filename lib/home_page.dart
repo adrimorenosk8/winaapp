@@ -5,9 +5,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'tipster_channel_page.dart';
 import 'mi_perfil.dart';
 import 'buscar_page.dart';
-
-// 👇 Importa tu widget global
 import 'widgets/user_name.dart';
+import 'seguidos_page.dart'; // 👈 nuevo
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -38,10 +37,25 @@ class _HomePageState extends State<HomePage> {
             .collectionGroup('posts')
             .where('status', isEqualTo: 'open')
             .orderBy('postedAt', descending: true)
+            .limit(200)
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
+          }
+
+          if (snapshot.hasError) {
+            debugPrint("❌ Firestore (posts abiertos): ${snapshot.error}");
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: Text(
+                  'Error cargando pronósticos.',
+                  style: TextStyle(color: Colors.redAccent),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            );
           }
 
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
@@ -54,7 +68,7 @@ class _HomePageState extends State<HomePage> {
           }
 
           final posts = snapshot.data!.docs.where((doc) {
-            final data = doc.data() as Map<String, dynamic>;
+            final data = doc.data() as Map<String, dynamic>? ?? {};
             return _esPronostico(data['type']);
           }).toList();
 
@@ -96,8 +110,10 @@ class _HomePageState extends State<HomePage> {
                 child: ListView.builder(
                   itemCount: posts.length,
                   itemBuilder: (context, index) {
-                    final p = posts[index].data() as Map<String, dynamic>;
-                    final tipsterId = p['tipsterId'];
+                    final p = posts[index].data() as Map<String, dynamic>? ?? {};
+                    final tipsterId = p['tipsterId']?.toString() ?? "";
+
+                    if (tipsterId.isEmpty) return const SizedBox();
 
                     return FutureBuilder<DocumentSnapshot>(
                       future: FirebaseFirestore.instance
@@ -105,15 +121,15 @@ class _HomePageState extends State<HomePage> {
                           .doc(tipsterId)
                           .get(),
                       builder: (context, canalSnap) {
-                        if (!canalSnap.hasData) {
+                        if (canalSnap.hasError) return const SizedBox();
+                        if (!canalSnap.hasData || !canalSnap.data!.exists) {
                           return const SizedBox();
                         }
 
-                        final canal =
-                            canalSnap.data!.data() as Map<String, dynamic>? ?? {};
-                        final nombreCanal = canal['nombre_canal'] ?? 'Canal';
-                        final fotoCanal = canal['foto_canal'];
-                        final role = canal['role'] ?? ''; // 👈 añadimos role
+                        final canal = canalSnap.data!.data() as Map<String, dynamic>? ?? {};
+                        final nombreCanal = (canal['nombre_canal'] ?? 'Canal').toString();
+                        final fotoCanal = (canal['foto_canal'] ?? canal['foto'])?.toString();
+                        final role = canal['role']?.toString() ?? '';
 
                         return _buildPronosticoCard(
                           context,
@@ -133,93 +149,26 @@ class _HomePageState extends State<HomePage> {
         },
       ),
 
-      // ----------- Pestaña 2: Canales que sigues -----------
-      StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance.collection('canales').snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return const Center(
-              child: Text(
-                'No sigues ningún canal.',
-                style: TextStyle(color: Colors.white70),
-              ),
-            );
-          }
-
-          final canales = snapshot.data!.docs.where((doc) {
-            final data = doc.data() as Map<String, dynamic>;
-            final seguidores = List<String>.from(data['seguidores'] ?? []);
-            return seguidores.contains(FirebaseAuth.instance.currentUser!.uid);
-          }).toList();
-
-          if (canales.isEmpty) {
-            return const Center(
-              child: Text(
-                'No sigues ningún canal.',
-                style: TextStyle(color: Colors.white70),
-              ),
-            );
-          }
-
-          return ListView.builder(
-            itemCount: canales.length,
-            itemBuilder: (context, index) {
-              final c = canales[index].data() as Map<String, dynamic>;
-              final tipsterId = canales[index].id;
-              final nombreCanal = c['nombre_canal'] ?? 'Canal';
-              final fotoCanal = c['foto_canal'];
-              final role = c['role'] ?? ''; // 👈 añadimos role
-
-              return ListTile(
-                tileColor: const Color(0xFF1E1E1E),
-                leading: CircleAvatar(
-                  radius: 24,
-                  backgroundImage:
-                      fotoCanal != null ? NetworkImage(fotoCanal) : null,
-                  child: fotoCanal == null
-                      ? const Icon(Icons.person,
-                          size: 28, color: Colors.white70)
-                      : null,
-                ),
-                title: UserName( // 👈 usamos el widget global
-                  name: nombreCanal,
-                  role: role,
-                ),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => TipsterChannelPage(tipsterId: tipsterId),
-                    ),
-                  );
-                },
-              );
-            },
-          );
-        },
-      ),
+      // ----------- Pestaña 2: Canales que sigo -----------
+      const SeguidosPage(),
 
       // ----------- Pestaña 3: Buscar -----------
       const BuscarPage(),
     ];
   }
 
-  // 🔹 Método para construir tarjeta de pronóstico
+  // 🔹 Tarjeta de pronóstico
   Widget _buildPronosticoCard(
     BuildContext context,
     Map<String, dynamic> p,
     String tipsterId,
     String nombreCanal,
     String? fotoCanal,
-    String role, // 👈 añadimos role
+    String role,
   ) {
     final stake = (p['stake'] is num)
         ? (p['stake'] as num).toDouble()
-        : double.tryParse(p['stake'].toString()) ?? 0;
+        : double.tryParse(p['stake']?.toString() ?? "") ?? 0.0;
 
     String confianza = "Baja";
     if (stake >= 1 && stake <= 2) {
@@ -239,7 +188,7 @@ class _HomePageState extends State<HomePage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 🔹 Encabezado Canal
+          // Encabezado Canal
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             child: Row(
@@ -250,23 +199,20 @@ class _HomePageState extends State<HomePage> {
                     CircleAvatar(
                       radius: 18,
                       backgroundImage:
-                          fotoCanal != null ? NetworkImage(fotoCanal) : null,
-                      child: fotoCanal == null
-                          ? const Icon(Icons.person,
-                              size: 22, color: Colors.white70)
+                          (fotoCanal != null && fotoCanal.isNotEmpty)
+                              ? NetworkImage(fotoCanal)
+                              : null,
+                      child: (fotoCanal == null || fotoCanal.isEmpty)
+                          ? const Icon(Icons.person, size: 22, color: Colors.white70)
                           : null,
                     ),
                     const SizedBox(width: 8),
-                    UserName( // 👈 usamos el widget global aquí también
-                      name: nombreCanal,
-                      role: role,
-                    ),
+                    UserName(name: nombreCanal, role: role),
                   ],
                 ),
                 OutlinedButton(
                   style: OutlinedButton.styleFrom(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                     side: BorderSide(color: Colors.greenAccent[400]!),
                     foregroundColor: Colors.greenAccent[400],
                     textStyle: const TextStyle(fontSize: 13),
@@ -285,7 +231,7 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
 
-          // 🔹 Bloque principal
+          // Bloque principal
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(14),
@@ -297,15 +243,12 @@ class _HomePageState extends State<HomePage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  "${p['evento']} (${p['sport']})",
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: Colors.white70,
-                  ),
+                  "${p['evento'] ?? ''} (${p['sport'] ?? ''})",
+                  style: const TextStyle(fontSize: 14, color: Colors.white70),
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  "${p['seleccion']}",
+                  "${p['seleccion'] ?? ''}",
                   style: const TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
@@ -313,8 +256,7 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                if (p['imageUrl'] != null &&
-                    (p['imageUrl'] as String).isNotEmpty)
+                if (p['imageUrl'] != null && (p['imageUrl'] as String).isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 14),
                     child: ClipRRect(
@@ -324,6 +266,13 @@ class _HomePageState extends State<HomePage> {
                         height: 160,
                         width: double.infinity,
                         fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => const SizedBox(
+                          height: 160,
+                          child: Center(
+                            child: Text('⚠️ Imagen no disponible',
+                                style: TextStyle(color: Colors.white70)),
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -339,7 +288,7 @@ class _HomePageState extends State<HomePage> {
                         ),
                         child: Center(
                           child: Text(
-                            "Stake ${p['stake']}",
+                            "Stake ${p['stake'] ?? '-'}",
                             style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
@@ -360,16 +309,16 @@ class _HomePageState extends State<HomePage> {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Text(
-                              "Confianza",
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.white70,
-                              ),
-                            ),
+                            const Text("Confianza", style: TextStyle(fontSize: 12, color: Colors.white70)),
                             const SizedBox(height: 2),
                             Text(
-                              confianza,
+                              (stake >= 6 && stake <= 10)
+                                  ? "Máxima"
+                                  : (stake >= 3 && stake <= 5)
+                                      ? "Alta"
+                                      : (stake >= 1 && stake <= 2)
+                                          ? "Media"
+                                          : "Baja",
                               style: const TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
@@ -391,16 +340,10 @@ class _HomePageState extends State<HomePage> {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Text(
-                              "Cuota",
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.white70,
-                              ),
-                            ),
+                            const Text("Cuota", style: TextStyle(fontSize: 12, color: Colors.white70)),
                             const SizedBox(height: 2),
                             Text(
-                              "${p['cuota']}",
+                              "${p['cuota'] ?? '-'}",
                               style: const TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
@@ -421,11 +364,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
-  }
+  void _onItemTapped(int index) => setState(() => _selectedIndex = index);
 
   @override
   Widget build(BuildContext context) {
@@ -435,10 +374,7 @@ class _HomePageState extends State<HomePage> {
         backgroundColor: const Color(0xFF1E1E1E),
         elevation: 0,
         centerTitle: true,
-        title: Image.asset(
-          "assets/images/logo.png",
-          height: 40,
-        ),
+        title: Image.asset("assets/images/logo.png", height: 40),
         actions: [
           IconButton(
             icon: Icon(Icons.person, color: Colors.greenAccent[400]),
@@ -465,7 +401,7 @@ class _HomePageState extends State<HomePage> {
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.campaign),
-            label: 'Canales',
+            label: 'Canales que sigo', // 👈 renombrado
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.search),

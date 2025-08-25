@@ -1,44 +1,52 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'widgets/user_name.dart';
 import 'tipster_channel_page.dart';
-import 'widgets/user_name.dart'; // 👈 usamos también el widget global
 
-class TipsterFeedPage extends StatelessWidget {
+// ---------- Helpers de sanitización ----------
+String sanitizeString(dynamic value, {String defaultValue = ''}) {
+  if (value == null) return defaultValue;
+  if (value is! String) return defaultValue;
+  return value.replaceAll(RegExp(r'[\u0000-\u001F\u007F]'), '').trim();
+}
+
+double sanitizeDouble(dynamic value, {double defaultValue = 0}) {
+  if (value == null) return defaultValue;
+  if (value is num) return value.toDouble();
+  return double.tryParse(value.toString()) ?? defaultValue;
+}
+
+bool _isValidHttpUrl(String? url) {
+  if (url == null || url.isEmpty) return false;
+  final u = Uri.tryParse(url);
+  return u != null && (u.scheme == 'http' || u.scheme == 'https');
+}
+
+bool _isPronostico(dynamic typeField) {
+  if (typeField == null) return false;
+  final v = typeField.toString().trim().toLowerCase();
+  return v == 'pronostico';
+}
+
+class TipsterFeedPage extends StatefulWidget {
   const TipsterFeedPage({super.key});
 
-  Future<List<Map<String, dynamic>>> _getPronosticos() async {
-    final List<Map<String, dynamic>> pronosticos = [];
+  @override
+  State<TipsterFeedPage> createState() => _TipsterFeedPageState();
+}
 
-    final canalesSnap =
-        await FirebaseFirestore.instance.collection('canales').get();
+class _TipsterFeedPageState extends State<TipsterFeedPage> {
+  // Caché de canales para evitar lecturas repetidas
+  final Map<String, Future<DocumentSnapshot<Map<String, dynamic>>>> _canalCache = {};
 
-    for (final canalDoc in canalesSnap.docs) {
-      final canalId = canalDoc.id;
-      final canalData = canalDoc.data();
-
-      final canalNombre = canalData['nombre_canal'] ?? 'Canal sin nombre';
-      final canalFoto = canalData['foto_canal'];
-      final role = canalData['role'] ?? ''; // 👈 añadimos role
-
-      final postsSnap = await FirebaseFirestore.instance
-          .collection('canales')
-          .doc(canalId)
-          .collection('posts')
-          .where('type', isEqualTo: 'pronostico')
-          .where('status', isEqualTo: 'open')
-          .get();
-
-      for (final postDoc in postsSnap.docs) {
-        final data = postDoc.data();
-        data['canalId'] = canalId;
-        data['canalNombre'] = canalNombre;
-        data['canalFoto'] = canalFoto;
-        data['role'] = role;
-        pronosticos.add(data);
-      }
-    }
-
-    return pronosticos;
+  // ❌ Sin "type == pronostico" en la query → evitamos índice compuesto
+  Stream<QuerySnapshot<Map<String, dynamic>>> _postsStream() {
+    return FirebaseFirestore.instance
+        .collectionGroup('posts')
+        .where('status', isEqualTo: 'open')
+        .orderBy('postedAt', descending: true)
+        .limit(200)
+        .snapshots();
   }
 
   @override
@@ -47,7 +55,7 @@ class TipsterFeedPage extends StatelessWidget {
       color: const Color(0xFF121212),
       child: Column(
         children: [
-          // 🔹 Encabezado estilo HomePage
+          // Encabezado
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 16),
             child: Center(
@@ -62,67 +70,56 @@ class TipsterFeedPage extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 6),
-                  Container(
-                    width: 180,
-                    height: 2,
-                    color: Colors.greenAccent[400],
-                  ),
+                  Container(width: 180, height: 2, color: Colors.greenAccent[400]),
                 ],
               ),
             ),
           ),
 
-          // 🔹 Lista de pronósticos
+          // Lista de pronósticos (stream en tiempo real)
           Expanded(
-            child: FutureBuilder<List<Map<String, dynamic>>>(
-              future: _getPronosticos(),
+            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: _postsStream(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(
-                    child: CircularProgressIndicator(color: Colors.greenAccent),
-                  );
+                  return const Center(child: CircularProgressIndicator(color: Colors.greenAccent));
                 }
                 if (snapshot.hasError) {
-                  return Center(
-                    child: Text(
-                      "Error: ${snapshot.error}",
-                      style: const TextStyle(color: Colors.redAccent),
-                    ),
+                  return const Center(
+                    child: Text("Error al cargar datos.", style: TextStyle(color: Colors.redAccent)),
                   );
                 }
-                final pronosticos = snapshot.data ?? [];
 
-                if (pronosticos.isEmpty) {
+                // Filtramos type == pronostico en memoria (evita índice)
+                final allDocs = snapshot.data?.docs ?? const [];
+                final docs = allDocs.where((d) => _isPronostico(d.data()['type'])).toList();
+                if (docs.isEmpty) {
                   return const Center(
-                    child: Text(
-                      "No hay pronósticos abiertos.",
-                      style: TextStyle(color: Colors.white70),
-                    ),
+                    child: Text("No hay pronósticos abiertos.", style: TextStyle(color: Colors.white70)),
                   );
                 }
 
                 return ListView.builder(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
-                  itemCount: pronosticos.length,
+                  itemCount: docs.length,
                   itemBuilder: (context, index) {
-                    final p = pronosticos[index];
-                    final evento = p['evento'] ?? 'Evento desconocido';
-                    final cuota = p['cuota']?.toString() ?? '-';
-                    final stakeVal = p['stake'];
-                    final stake = stakeVal != null ? stakeVal.toString() : '-';
-                    final seleccion = p['seleccion'] ?? '-';
-                    final canalNombre = p['canalNombre'] ?? 'Canal';
-                    final canalFoto = p['canalFoto'];
-                    final role = p['role'] ?? '';
-                    final imageUrl = p['imageUrl'];
+                    final data = docs[index].data();
 
-                    // 🔹 Calcular confianza como en HomePage
-                    double stakeNum = 0;
-                    if (stakeVal is num) {
-                      stakeNum = stakeVal.toDouble();
-                    } else {
-                      stakeNum = double.tryParse(stakeVal.toString()) ?? 0;
-                    }
+                    // Campos del post (sanitizados)
+                    final tipsterId = sanitizeString(data['tipsterId']);
+                    if (tipsterId.isEmpty) return const SizedBox.shrink();
+
+                    final evento = sanitizeString(data['evento'], defaultValue: 'Evento desconocido');
+                    final seleccion = sanitizeString(data['seleccion'], defaultValue: '-');
+                    final cuotaNum = sanitizeDouble(data['cuota']);
+                    final cuota = cuotaNum > 0 ? cuotaNum.toString() : '-';
+                    final stakeNum = sanitizeDouble(data['stake']);
+                    final stake = stakeNum > 0 ? stakeNum.toString() : '-';
+                    final imageUrl = _isValidHttpUrl(data['imageUrl'] is String ? data['imageUrl'] as String : null)
+                        ? data['imageUrl'] as String
+                        : null;
+
+                    // Confianza según stake
                     String confianza = "Baja";
                     if (stakeNum >= 1 && stakeNum <= 2) {
                       confianza = "Media";
@@ -132,208 +129,189 @@ class TipsterFeedPage extends StatelessWidget {
                       confianza = "Máxima";
                     }
 
-                    return Card(
-                      color: const Color(0xFF1E1E1E),
-                      margin: const EdgeInsets.symmetric(vertical: 8),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // 🔹 Encabezado Canal
-                          Padding(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 10),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Row(
+                    // Traer info del canal (una vez por tipsterId)
+                    final future = _canalCache.putIfAbsent(
+                      tipsterId,
+                      () => FirebaseFirestore.instance.collection('canales').doc(tipsterId).get(),
+                    );
+
+                    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                      future: future,
+                      builder: (context, canalSnap) {
+                        String canalNombre = 'Canal';
+                        String? canalFoto;
+                        String role = '';
+
+                        // Si canal privado / sin permisos -> omitimos avatar/role (pero mostramos el post)
+                        if (canalSnap.hasData && (canalSnap.data?.exists ?? false)) {
+                          final canal = canalSnap.data!.data() ?? {};
+                          canalNombre = sanitizeString(canal['nombre_canal'], defaultValue: 'Canal');
+                          final foto = sanitizeString(canal['foto_canal'] ?? canal['foto']);
+                          canalFoto = _isValidHttpUrl(foto) ? foto : null;
+                          role = sanitizeString(canal['role']);
+                        }
+
+                        return Card(
+                          color: const Color(0xFF1E1E1E),
+                          margin: const EdgeInsets.symmetric(vertical: 8),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Encabezado Canal
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
-                                    CircleAvatar(
-                                      radius: 18,
-                                      backgroundImage: canalFoto != null
-                                          ? NetworkImage(canalFoto)
-                                          : null,
-                                      child: canalFoto == null
-                                          ? const Icon(Icons.person,
-                                              size: 22, color: Colors.white70)
-                                          : null,
+                                    Row(
+                                      children: [
+                                        CircleAvatar(
+                                          radius: 18,
+                                          backgroundImage: (canalFoto != null) ? NetworkImage(canalFoto) : null,
+                                          child: (canalFoto == null)
+                                              ? const Icon(Icons.person, size: 22, color: Colors.white70)
+                                              : null,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        UserName(name: canalNombre, role: role),
+                                      ],
                                     ),
-                                    const SizedBox(width: 8),
-                                    UserName(
-                                      name: canalNombre,
-                                      role: role,
+                                    OutlinedButton(
+                                      style: OutlinedButton.styleFrom(
+                                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                        side: BorderSide(color: Colors.greenAccent[400]!),
+                                        foregroundColor: Colors.greenAccent[400],
+                                        textStyle: const TextStyle(fontSize: 13),
+                                      ),
+                                      onPressed: () {
+                                        if (tipsterId.isNotEmpty) {
+                                          Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (_) => TipsterChannelPage(tipsterId: tipsterId),
+                                            ),
+                                          );
+                                        }
+                                      },
+                                      child: const Text("Visitar"),
                                     ),
                                   ],
                                 ),
-                                OutlinedButton(
-                                  style: OutlinedButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 14, vertical: 6),
-                                    side: BorderSide(
-                                        color: Colors.greenAccent[400]!),
-                                    foregroundColor: Colors.greenAccent[400],
-                                    textStyle: const TextStyle(fontSize: 13),
-                                  ),
-                                  onPressed: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) => TipsterChannelPage(
-                                            tipsterId: p['canalId']),
-                                      ),
-                                    );
-                                  },
-                                  child: const Text("Visitar"),
-                                ),
-                              ],
-                            ),
-                          ),
+                              ),
 
-                          // 🔹 Bloque principal
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF2A2A2A),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  "$evento",
-                                  style: const TextStyle(
-                                    fontSize: 14,
-                                    color: Colors.white70,
-                                  ),
+                              // Bloque principal
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(14),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF2A2A2A),
+                                  borderRadius: BorderRadius.circular(10),
                                 ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  seleccion,
-                                  style: const TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                if (imageUrl != null &&
-                                    (imageUrl as String).isNotEmpty)
-                                  Padding(
-                                    padding:
-                                        const EdgeInsets.only(bottom: 14),
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(8),
-                                      child: Image.network(
-                                        imageUrl,
-                                        height: 160,
-                                        width: double.infinity,
-                                        fit: BoxFit.cover,
-                                      ),
-                                    ),
-                                  ),
-                                Row(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Expanded(
-                                      child: Container(
-                                        height: 60,
-                                        margin: const EdgeInsets.symmetric(
-                                            horizontal: 4),
-                                        decoration: BoxDecoration(
-                                          color: Colors.amber.withOpacity(0.25),
-                                          borderRadius:
-                                              BorderRadius.circular(8),
-                                        ),
-                                        child: Center(
-                                          child: Text(
-                                            "Stake $stake",
-                                            style: const TextStyle(
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.bold,
-                                              color: Colors.white,
+                                    Text(evento, style: const TextStyle(fontSize: 14, color: Colors.white70)),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      seleccion,
+                                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    if (imageUrl != null)
+                                      Padding(
+                                        padding: const EdgeInsets.only(bottom: 14),
+                                        child: ClipRRect(
+                                          borderRadius: BorderRadius.circular(8),
+                                          child: Image.network(
+                                            imageUrl,
+                                            height: 160,
+                                            width: double.infinity,
+                                            fit: BoxFit.cover,
+                                            errorBuilder: (_, __, ___) => const SizedBox(
+                                              height: 160,
+                                              child: Center(
+                                                child: Text('⚠️ Imagen no disponible', style: TextStyle(color: Colors.white70)),
+                                              ),
                                             ),
                                           ),
                                         ),
                                       ),
-                                    ),
-                                    Expanded(
-                                      child: Container(
-                                        height: 60,
-                                        margin: const EdgeInsets.symmetric(
-                                            horizontal: 4),
-                                        decoration: BoxDecoration(
-                                          color: Colors.blue.withOpacity(0.25),
-                                          borderRadius:
-                                              BorderRadius.circular(8),
-                                        ),
-                                        child: Column(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.center,
-                                          children: [
-                                            const Text(
-                                              "Confianza",
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                color: Colors.white70,
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Container(
+                                            height: 60,
+                                            margin: const EdgeInsets.symmetric(horizontal: 4),
+                                            decoration: BoxDecoration(
+                                              color: Colors.amber.withOpacity(0.25),
+                                              borderRadius: BorderRadius.circular(8),
+                                            ),
+                                            child: Center(
+                                              child: Text(
+                                                "Stake $stake",
+                                                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
                                               ),
                                             ),
-                                            const SizedBox(height: 2),
-                                            Text(
-                                              confianza,
-                                              style: const TextStyle(
-                                                fontSize: 16,
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.white,
-                                              ),
-                                            ),
-                                          ],
+                                          ),
                                         ),
-                                      ),
-                                    ),
-                                    Expanded(
-                                      child: Container(
-                                        height: 60,
-                                        margin: const EdgeInsets.symmetric(
-                                            horizontal: 4),
-                                        decoration: BoxDecoration(
-                                          color:
-                                              Colors.green.withOpacity(0.25),
-                                          borderRadius:
-                                              BorderRadius.circular(8),
-                                        ),
-                                        child: Column(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.center,
-                                          children: [
-                                            const Text(
-                                              "Cuota",
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                color: Colors.white70,
-                                              ),
+                                        Expanded(
+                                          child: Container(
+                                            height: 60,
+                                            margin: const EdgeInsets.symmetric(horizontal: 4),
+                                            decoration: BoxDecoration(
+                                              color: Colors.blue.withOpacity(0.25),
+                                              borderRadius: BorderRadius.circular(8),
                                             ),
-                                            const SizedBox(height: 2),
-                                            Text(
-                                              cuota,
-                                              style: const TextStyle(
-                                                fontSize: 18,
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.white,
-                                              ),
+                                            child: Column(
+                                              mainAxisAlignment: MainAxisAlignment.center,
+                                              children: [
+                                                const Text("Confianza", style: TextStyle(fontSize: 12, color: Colors.white70)),
+                                                const SizedBox(height: 2),
+                                                Text(
+                                                  (stakeNum >= 6 && stakeNum <= 10)
+                                                      ? "Máxima"
+                                                      : (stakeNum >= 3 && stakeNum <= 5)
+                                                          ? "Alta"
+                                                          : (stakeNum >= 1 && stakeNum <= 2)
+                                                              ? "Media"
+                                                              : "Baja",
+                                                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                                                ),
+                                              ],
                                             ),
-                                          ],
+                                          ),
                                         ),
-                                      ),
+                                        Expanded(
+                                          child: Container(
+                                            height: 60,
+                                            margin: const EdgeInsets.symmetric(horizontal: 4),
+                                            decoration: BoxDecoration(
+                                              color: Colors.green.withOpacity(0.25),
+                                              borderRadius: BorderRadius.circular(8),
+                                            ),
+                                            child: Column(
+                                              mainAxisAlignment: MainAxisAlignment.center,
+                                              children: [
+                                                const Text("Cuota", style: TextStyle(fontSize: 12, color: Colors.white70)),
+                                                const SizedBox(height: 2),
+                                                Text(
+                                                  cuota,
+                                                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ],
                                 ),
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
+                        );
+                      },
                     );
                   },
                 );
