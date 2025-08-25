@@ -1,4 +1,3 @@
-// tipster_page.dart
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -11,7 +10,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:wina/tipster_channel_info.dart';
 
-/// ======= Colores de la app (match captura) =======
+/// ======= Colores de la app =======
 const Color kPrimaryGreen = Color(0xFF2ECC71);
 const Color kDarkBg = Colors.black;
 const Color kFieldBg = Color(0xFF1E1E1E);
@@ -78,6 +77,49 @@ class _TipsterPageState extends State<TipsterPage> {
     final v = double.tryParse(s) ?? 0.0;
     if (v.isNaN || v.isInfinite) return 0.0;
     return (v.clamp(0.1, 10.0)).toDouble();
+  }
+
+  // ======= Imagen: visor + helper sin recortes =======
+  void _openImageViewer(String url) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withOpacity(0.9),
+      builder: (_) => GestureDetector(
+        onTap: () => Navigator.pop(context),
+        child: InteractiveViewer(
+          minScale: 0.5,
+          maxScale: 5,
+          child: Center(
+            child: Image.network(
+              url,
+              fit: BoxFit.contain,
+              errorBuilder: (_, __, ___) => const Padding(
+                padding: EdgeInsets.all(24),
+                child: Text('⚠️ Imagen no disponible', style: TextStyle(color: Colors.white70)),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _postImage(String url) {
+    return GestureDetector(
+      onTap: () => _openImageViewer(url),
+      child: ClipRRect(
+        borderRadius: kRadius,
+        child: Image.network(
+          url,
+          width: double.infinity,
+          fit: BoxFit.fitWidth, // 🔸 sin recortes
+          errorBuilder: (_, __, ___) => const SizedBox(
+            height: 140,
+            child: Center(child: Text('⚠️ Imagen no disponible', style: TextStyle(color: Colors.white70))),
+          ),
+        ),
+      ),
+    );
   }
 
   // ======= SUBIR TEXTO =======
@@ -272,196 +314,6 @@ class _TipsterPageState extends State<TipsterPage> {
     } finally {
       _creatingTip = false;
     }
-  }
-
-  // ======= Hoja inferior con estilo y que no tapa el teclado =======
-  InputDecoration _decor(String label, IconData icon) {
-    return InputDecoration(
-      labelText: label,
-      prefixIcon: Icon(icon, color: kPrimaryGreen),
-      filled: true,
-      fillColor: kFieldBg,
-      labelStyle: const TextStyle(color: Colors.white70),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-      enabledBorder: const OutlineInputBorder(
-        borderRadius: kRadius,
-        borderSide: BorderSide(color: kPrimaryGreen, width: 1),
-      ),
-      focusedBorder: const OutlineInputBorder(
-        borderRadius: kRadius,
-        borderSide: BorderSide(color: kPrimaryGreen, width: 2),
-      ),
-    );
-  }
-
-  void _abrirFormularioPronostico() {
-    showModalBottomSheet(
-      isScrollControlled: true,
-      backgroundColor: kDarkBg,
-      context: context,
-      builder: (ctx) => FractionallySizedBox(
-        heightFactor: 0.92,
-        child: SafeArea(
-          child: Padding(
-            padding: EdgeInsets.only(
-              left: 16,
-              right: 16,
-              top: 16,
-              bottom: MediaQuery.of(context).viewInsets.bottom,
-            ),
-            child: Form(
-              key: _formKey,
-              child: SingleChildScrollView(
-                physics: const ClampingScrollPhysics(),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const SizedBox(height: 4),
-                    Center(
-                      child: Container(
-                        width: 50, height: 5,
-                        decoration: BoxDecoration(
-                          color: Colors.white24,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      "Nuevo Pronóstico",
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _sport,
-                      autofocus: true,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: _decor("Deporte", Icons.sports),
-                      inputFormatters: [LengthLimitingTextInputFormatter(60)],
-                      validator: (v) {
-                        final s = _sanitizeText(v ?? '');
-                        if (s.isEmpty) return "Introduce un deporte";
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _evento,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: _decor("Evento", Icons.flag),
-                      inputFormatters: [LengthLimitingTextInputFormatter(120)],
-                      validator: (v) {
-                        final s = _sanitizeText(v ?? '');
-                        if (s.isEmpty) return "Introduce un evento";
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _seleccion,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: _decor("Selección", Icons.checklist),
-                      inputFormatters: [LengthLimitingTextInputFormatter(120)],
-                      validator: (v) {
-                        final s = _sanitizeText(v ?? '');
-                        if (s.isEmpty) return "Introduce selección";
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _cuota,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: _decor("Cuota", Icons.monetization_on),
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(RegExp(r'[\d\.,]')),
-                        LengthLimitingTextInputFormatter(10),
-                      ],
-                      validator: (v) {
-                        final x = _sanitizeCuota(v ?? '');
-                        if (x < 1.01) return "Introduce una cuota válida";
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _stake,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: _decor("Stake (decimales permitidos)", Icons.casino),
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(RegExp(r'[\d\.,]')),
-                        LengthLimitingTextInputFormatter(5),
-                      ],
-                      validator: (v) {
-                        final x = _sanitizeStake(v ?? '');
-                        if (x <= 0 || x > 10) return "Stake 0.1 - 10.0";
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        if (_pickedImage == null)
-                          const Text("Sin imagen", style: TextStyle(color: Colors.white70))
-                        else if (kIsWeb)
-                          Expanded(
-                            child: ClipRRect(
-                              borderRadius: kRadius,
-                              child: Image.network(
-                                _pickedImage!.path,
-                                height: 100, fit: BoxFit.cover,
-                                errorBuilder: (_, __, ___) => const SizedBox(
-                                  height: 100,
-                                  child: Center(child: Text('⚠️ Error de vista previa', style: TextStyle(color: Colors.white70))),
-                                ),
-                              ),
-                            ),
-                          )
-                        else
-                          Expanded(
-                            child: ClipRRect(
-                              borderRadius: kRadius,
-                              child: Image.file(
-                                File(_pickedImage!.path),
-                                height: 100, fit: BoxFit.cover,
-                                errorBuilder: (_, __, ___) => const SizedBox(
-                                  height: 100,
-                                  child: Center(child: Text('⚠️ Error de vista previa', style: TextStyle(color: Colors.white70))),
-                                ),
-                              ),
-                            ),
-                          ),
-                        IconButton(
-                          onPressed: _pickImage,
-                          icon: const Icon(Icons.image, color: kPrimaryGreen),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      height: 48,
-                      child: ElevatedButton(
-                        onPressed: _crearPronostico,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: kPrimaryGreen,
-                          foregroundColor: Colors.black,
-                          shape: RoundedRectangleBorder(borderRadius: kRadius),
-                        ),
-                        child: const Text("Aceptar", style: TextStyle(fontWeight: FontWeight.w600)),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
   }
 
   // ======= BORRAR / EDITAR =======
@@ -748,19 +600,6 @@ class _TipsterPageState extends State<TipsterPage> {
     }
   }
 
-  // Tema oscuro para menús contextuales (texto blanco)
-  Theme _menuTheme(BuildContext context, Widget child) {
-    return Theme(
-      data: Theme.of(context).copyWith(
-        popupMenuTheme: const PopupMenuThemeData(
-          color: kFieldBg,
-          textStyle: TextStyle(color: Colors.white),
-        ),
-      ),
-      child: child,
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
@@ -803,7 +642,6 @@ class _TipsterPageState extends State<TipsterPage> {
               },
               child: Row(
                 children: [
-                  if (_isValidHttpUrl(foto)) const SizedBox(width: 0),
                   if (_isValidHttpUrl(foto)) CircleAvatar(backgroundImage: NetworkImage(foto))
                   else const CircleAvatar(child: Icon(Icons.person)),
                   const SizedBox(width: 8),
@@ -916,7 +754,7 @@ class _TipsterPageState extends State<TipsterPage> {
                               crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
                                 Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
                                     Expanded(
                                       child: Text(
@@ -924,9 +762,15 @@ class _TipsterPageState extends State<TipsterPage> {
                                         style: const TextStyle(color: Colors.white),
                                       ),
                                     ),
-                                    _menuTheme(
-                                      context,
-                                      PopupMenuButton<String>(
+                                    Theme(
+                                      data: Theme.of(context).copyWith(
+                                        popupMenuTheme: const PopupMenuThemeData(
+                                          color: kFieldBg,
+                                          textStyle: TextStyle(color: Colors.white),
+                                        ),
+                                      ),
+                                      child: PopupMenuButton<String>(
+                                        iconColor: Colors.white70,
                                         onSelected: (value) {
                                           if (value == 'delete') {
                                             _borrarPost(postId);
@@ -963,8 +807,8 @@ class _TipsterPageState extends State<TipsterPage> {
                                           }
                                         },
                                         itemBuilder: (context) => const [
-                                          PopupMenuItem(value: 'edit', child: Text("✏️ Editar")),
-                                          PopupMenuItem(value: 'delete', child: Text("🗑️ Eliminar")),
+                                          PopupMenuItem(value: 'edit', child: Text("✏️ Editar", style: TextStyle(color: Colors.white))),
+                                          PopupMenuItem(value: 'delete', child: Text("🗑️ Eliminar", style: TextStyle(color: Colors.white))),
                                         ],
                                       ),
                                     ),
@@ -997,19 +841,25 @@ class _TipsterPageState extends State<TipsterPage> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
                                     Expanded(
                                       child: Text(
                                         "Selección: ${data['seleccion'] ?? ''}",
-                                        maxLines: 2,
+                                        maxLines: 3,
                                         overflow: TextOverflow.ellipsis,
                                         style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
                                       ),
                                     ),
-                                    _menuTheme(
-                                      context,
-                                      PopupMenuButton<String>(
+                                    Theme(
+                                      data: Theme.of(context).copyWith(
+                                        popupMenuTheme: const PopupMenuThemeData(
+                                          color: kFieldBg,
+                                          textStyle: TextStyle(color: Colors.white),
+                                        ),
+                                      ),
+                                      child: PopupMenuButton<String>(
+                                        iconColor: Colors.white70,
                                         onSelected: (value) async {
                                           if (value == 'delete') {
                                             _borrarPost(postId);
@@ -1025,10 +875,10 @@ class _TipsterPageState extends State<TipsterPage> {
                                           }
                                         },
                                         itemBuilder: (context) => const [
-                                          PopupMenuItem(value: 'edit', child: Text("✏️ Editar")),
-                                          PopupMenuItem(value: 'delete', child: Text("🗑️ Eliminar")),
-                                          PopupMenuItem(value: 'won', child: Text("✅ Acertada")),
-                                          PopupMenuItem(value: 'lost', child: Text("❌ Fallada")),
+                                          PopupMenuItem(value: 'edit', child: Text("✏️ Editar", style: TextStyle(color: Colors.white))),
+                                          PopupMenuItem(value: 'delete', child: Text("🗑️ Eliminar", style: TextStyle(color: Colors.white))),
+                                          PopupMenuItem(value: 'won', child: Text("✅ Acertada", style: TextStyle(color: Colors.white))),
+                                          PopupMenuItem(value: 'lost', child: Text("❌ Fallada", style: TextStyle(color: Colors.white))),
                                         ],
                                       ),
                                     ),
@@ -1046,23 +896,16 @@ class _TipsterPageState extends State<TipsterPage> {
                                 if (_isValidHttpUrl(data['imageUrl'] is String ? data['imageUrl'] as String : null))
                                   Padding(
                                     padding: const EdgeInsets.only(top: 8),
-                                    child: ClipRRect(
-                                      borderRadius: kRadius,
-                                      child: Image.network(
-                                        data['imageUrl'],
-                                        height: 140, width: double.infinity, fit: BoxFit.cover,
-                                        errorBuilder: (_, __, ___) => const SizedBox(
-                                          height: 140,
-                                          child: Center(child: Text('⚠️ Imagen no disponible', style: TextStyle(color: Colors.white70))),
-                                        ),
-                                      ),
-                                    ),
+                                    child: _postImage(data['imageUrl']),
                                   ),
                                 const SizedBox(height: 6),
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
-                                    const SizedBox.shrink(),
+                                    if (fecha.isNotEmpty)
+                                      Text("🗓️ $fecha", style: const TextStyle(fontSize: 10, color: Colors.white54))
+                                    else
+                                      const SizedBox.shrink(),
                                     Row(
                                       children: [
                                         if (data['status'] == 'won')
@@ -1126,9 +969,15 @@ class _TipsterPageState extends State<TipsterPage> {
                                     color: positivo ? kPrimaryGreen : Colors.redAccent,
                                   ),
                                 ),
-                                _menuTheme(
-                                  context,
-                                  PopupMenuButton<String>(
+                                Theme(
+                                  data: Theme.of(context).copyWith(
+                                    popupMenuTheme: const PopupMenuThemeData(
+                                      color: kFieldBg,
+                                      textStyle: TextStyle(color: Colors.white),
+                                    ),
+                                  ),
+                                  child: PopupMenuButton<String>(
+                                    iconColor: Colors.white70,
                                     onSelected: (value) async {
                                       if (value == 'delete') {
                                         await _borrarPost(postId);
@@ -1147,9 +996,9 @@ class _TipsterPageState extends State<TipsterPage> {
                                       }
                                     },
                                     itemBuilder: (context) => const [
-                                      PopupMenuItem(value: 'won', child: Text("✅ Marcar como Acertada")),
-                                      PopupMenuItem(value: 'lost', child: Text("❌ Marcar como Fallada")),
-                                      PopupMenuItem(value: 'delete', child: Text("🗑️ Eliminar")),
+                                      PopupMenuItem(value: 'won', child: Text("✅ Marcar como Acertada", style: TextStyle(color: Colors.white))),
+                                      PopupMenuItem(value: 'lost', child: Text("❌ Marcar como Fallada", style: TextStyle(color: Colors.white))),
+                                      PopupMenuItem(value: 'delete', child: Text("🗑️ Eliminar", style: TextStyle(color: Colors.white))),
                                     ],
                                   ),
                                 ),
@@ -1210,6 +1059,195 @@ class _TipsterPageState extends State<TipsterPage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  InputDecoration _decor(String label, IconData icon) {
+    return InputDecoration(
+      labelText: label,
+      prefixIcon: Icon(icon, color: kPrimaryGreen),
+      filled: true,
+      fillColor: kFieldBg,
+      labelStyle: const TextStyle(color: Colors.white70),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      enabledBorder: const OutlineInputBorder(
+        borderRadius: kRadius,
+        borderSide: BorderSide(color: kPrimaryGreen, width: 1),
+      ),
+      focusedBorder: const OutlineInputBorder(
+        borderRadius: kRadius,
+        borderSide: BorderSide(color: kPrimaryGreen, width: 2),
+      ),
+    );
+  }
+
+  void _abrirFormularioPronostico() {
+    showModalBottomSheet(
+      isScrollControlled: true,
+      backgroundColor: kDarkBg,
+      context: context,
+      builder: (ctx) => FractionallySizedBox(
+        heightFactor: 0.92,
+        child: SafeArea(
+          child: Padding(
+            padding: EdgeInsets.only(
+              left: 16,
+              right: 16,
+              top: 16,
+              bottom: MediaQuery.of(context).viewInsets.bottom,
+            ),
+            child: Form(
+              key: _formKey,
+              child: SingleChildScrollView(
+                physics: const ClampingScrollPhysics(),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SizedBox(height: 4),
+                    Center(
+                      child: Container(
+                        width: 50, height: 5,
+                        decoration: BoxDecoration(
+                          color: Colors.white24,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      "Nuevo Pronóstico",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: _sport,
+                      autofocus: true,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: _decor("Deporte", Icons.sports),
+                      inputFormatters: [LengthLimitingTextInputFormatter(60)],
+                      validator: (v) {
+                        final s = _sanitizeText(v ?? '');
+                        if (s.isEmpty) return "Introduce un deporte";
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _evento,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: _decor("Evento", Icons.flag),
+                      inputFormatters: [LengthLimitingTextInputFormatter(120)],
+                      validator: (v) {
+                        final s = _sanitizeText(v ?? '');
+                        if (s.isEmpty) return "Introduce un evento";
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _seleccion,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: _decor("Selección", Icons.checklist),
+                      inputFormatters: [LengthLimitingTextInputFormatter(120)],
+                      validator: (v) {
+                        final s = _sanitizeText(v ?? '');
+                        if (s.isEmpty) return "Introduce selección";
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _cuota,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: _decor("Cuota", Icons.monetization_on),
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(RegExp(r'[\d\.,]')),
+                        LengthLimitingTextInputFormatter(10),
+                      ],
+                      validator: (v) {
+                        final x = _sanitizeCuota(v ?? '');
+                        if (x < 1.01) return "Introduce una cuota válida";
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _stake,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: _decor("Stake (decimales permitidos)", Icons.casino),
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(RegExp(r'[\d\.,]')),
+                        LengthLimitingTextInputFormatter(5),
+                      ],
+                      validator: (v) {
+                        final x = _sanitizeStake(v ?? '');
+                        if (x <= 0 || x > 10) return "Stake 0.1 - 10.0";
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        if (_pickedImage == null)
+                          const Text("Sin imagen", style: TextStyle(color: Colors.white70))
+                        else if (kIsWeb)
+                          Expanded(
+                            child: ClipRRect(
+                              borderRadius: kRadius,
+                              child: Image.network(
+                                _pickedImage!.path,
+                                height: 100, fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => const SizedBox(
+                                  height: 100,
+                                  child: Center(child: Text('⚠️ Error de vista previa', style: TextStyle(color: Colors.white70))),
+                                ),
+                              ),
+                            ),
+                          )
+                        else
+                          Expanded(
+                            child: ClipRRect(
+                              borderRadius: kRadius,
+                              child: Image.file(
+                                File(_pickedImage!.path),
+                                height: 100, fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => const SizedBox(
+                                  height: 100,
+                                  child: Center(child: Text('⚠️ Error de vista previa', style: TextStyle(color: Colors.white70))),
+                                ),
+                              ),
+                            ),
+                          ),
+                        IconButton(
+                          onPressed: _pickImage,
+                          icon: const Icon(Icons.image, color: kPrimaryGreen),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      height: 48,
+                      child: ElevatedButton(
+                        onPressed: _crearPronostico,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: kPrimaryGreen,
+                          foregroundColor: Colors.black,
+                          shape: RoundedRectangleBorder(borderRadius: kRadius),
+                        ),
+                        child: const Text("Aceptar", style: TextStyle(fontWeight: FontWeight.w600)),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

@@ -145,6 +145,47 @@ class _TipsterChannelPageState extends State<TipsterChannelPage> {
     );
   }
 
+  // ===== Imagen: visor + helper sin recortes =====
+  void _openImageViewer(String url) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withOpacity(0.9),
+      builder: (_) => GestureDetector(
+        onTap: () => Navigator.pop(context),
+        child: InteractiveViewer(
+          minScale: 0.5,
+          maxScale: 5,
+          child: Center(
+            child: Image.network(
+              url,
+              fit: BoxFit.contain,
+              errorBuilder: (_, __, ___) => const Padding(
+                padding: EdgeInsets.all(24),
+                child: Text('⚠️ Imagen no disponible', style: TextStyle(color: Colors.white70)),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _postImage(String url) {
+    return GestureDetector(
+      onTap: () => _openImageViewer(url),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Image.network(
+          url,
+          width: double.infinity,
+          fit: BoxFit.fitWidth, // 👈 sin recortes
+          errorBuilder: (ctx, error, stack) =>
+              const SizedBox(height: 160, child: Center(child: Text('⚠️ Imagen no disponible', style: TextStyle(color: Colors.white70)))),
+        ),
+      ),
+    );
+  }
+
   /// Stream combinado (ordenamos en memoria):
   /// - Canal público o seguidor/owner: ver TODO.
   /// - Apuesta_resuelta: query sin orderBy (evita índice) y se ordena abajo.
@@ -322,7 +363,7 @@ class _TipsterChannelPageState extends State<TipsterChannelPage> {
                         stream: userRoleStream,
                         builder: (context, roleSnap) {
                           final role = (roleSnap.data?.data() ?? const {})['role']?.toString() ?? '';
-                          final canFollow = role == 'user' || role == 'tipster' || role == 'admin';
+                          final canFollow = role == 'user' || role == 'tipster' || role == 'admin'; // 👈 tipster también puede
                           return ElevatedButton(
                             style: ElevatedButton.styleFrom(
                               backgroundColor: isFollowing ? Colors.redAccent : (canFollow ? Colors.green : Colors.grey),
@@ -501,6 +542,7 @@ class _TipsterChannelPageState extends State<TipsterChannelPage> {
                         final status = _toSafeString(p['status']).isEmpty ? 'open' : _toSafeString(p['status']);
                         final cuota = _toDouble(p['cuota']);
                         final stake = _toDouble(p['stake']);
+                        final imageUrl = _toSafeString(p['imageUrl']);
 
                         children.add(
                           Card(
@@ -522,20 +564,10 @@ class _TipsterChannelPageState extends State<TipsterChannelPage> {
                                     "Cuota: ${cuota.toStringAsFixed(2)} | Stake: ${stake.toStringAsFixed(2)}",
                                     style: const TextStyle(color: Colors.white70),
                                   ),
-                                  if (_toSafeString(p['imageUrl']).isNotEmpty)
+                                  if (imageUrl.isNotEmpty)
                                     Padding(
                                       padding: const EdgeInsets.only(top: 8),
-                                      child: ClipRRect(
-                                        borderRadius: BorderRadius.circular(8),
-                                        child: Image.network(
-                                          p['imageUrl'],
-                                          height: 150,
-                                          width: double.infinity,
-                                          fit: BoxFit.cover,
-                                          errorBuilder: (ctx, error, stack) =>
-                                              const Icon(Icons.broken_image, color: Colors.red),
-                                        ),
-                                      ),
+                                      child: _postImage(imageUrl), // 👈 sin recortes + visor
                                     ),
                                   Row(
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -592,7 +624,7 @@ class _TipsterChannelPageState extends State<TipsterChannelPage> {
                 stream: userRoleStream,
                 builder: (context, roleSnap) {
                   final role = (roleSnap.data?.data() ?? const {})['role']?.toString() ?? '';
-                  final canFollow = role == 'user' || role == 'admin';
+                  final canFollow = role == 'user' || role == 'tipster' || role == 'admin'; // 👈 también tipster
                   return ElevatedButton(
                     style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),

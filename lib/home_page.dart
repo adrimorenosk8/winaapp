@@ -6,7 +6,6 @@ import 'tipster_channel_page.dart';
 import 'mi_perfil.dart';
 import 'buscar_page.dart';
 import 'widgets/user_name.dart';
-import 'seguidos_page.dart'; // 👈 nuevo
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -22,6 +21,40 @@ class _HomePageState extends State<HomePage> {
     if (typeField == null) return false;
     final val = typeField.toString().trim().toLowerCase();
     return val == "pronostico";
+  }
+
+  // ---- visor imagen + helper sin recortes ----
+  void _openImageViewer(String url) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withOpacity(0.9),
+      builder: (_) => GestureDetector(
+        onTap: () => Navigator.pop(context),
+        child: InteractiveViewer(
+          minScale: 0.5,
+          maxScale: 5,
+          child: Center(child: Image.network(url, fit: BoxFit.contain)),
+        ),
+      ),
+    );
+  }
+
+  Widget _postImage(String url) {
+    return GestureDetector(
+      onTap: () => _openImageViewer(url),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Image.network(
+          url,
+          width: double.infinity,
+          fit: BoxFit.fitWidth,
+          errorBuilder: (_, __, ___) => const SizedBox(
+            height: 160,
+            child: Center(child: Text('⚠️ Imagen no disponible', style: TextStyle(color: Colors.white70))),
+          ),
+        ),
+      ),
+    );
   }
 
   late final List<Widget> _pages;
@@ -67,6 +100,7 @@ class _HomePageState extends State<HomePage> {
             );
           }
 
+          // Nos quedamos solo con type == pronostico
           final posts = snapshot.data!.docs.where((doc) {
             final data = doc.data() as Map<String, dynamic>? ?? {};
             return _esPronostico(data['type']);
@@ -112,7 +146,6 @@ class _HomePageState extends State<HomePage> {
                   itemBuilder: (context, index) {
                     final p = posts[index].data() as Map<String, dynamic>? ?? {};
                     final tipsterId = p['tipsterId']?.toString() ?? "";
-
                     if (tipsterId.isEmpty) return const SizedBox();
 
                     return FutureBuilder<DocumentSnapshot>(
@@ -149,8 +182,88 @@ class _HomePageState extends State<HomePage> {
         },
       ),
 
-      // ----------- Pestaña 2: Canales que sigo -----------
-      const SeguidosPage(),
+      // ----------- Pestaña 2: Canales que sigues -----------
+      Builder(
+        builder: (context) {
+          final uid = FirebaseAuth.instance.currentUser?.uid ?? "";
+          if (uid.isEmpty) {
+            return const Center(
+              child: Text(
+                'Usuario no autenticado.',
+                style: TextStyle(color: Colors.white70),
+              ),
+            );
+          }
+
+          final stream = FirebaseFirestore.instance
+              .collection('canales')
+              .where('seguidores', arrayContains: uid)
+              .snapshots();
+
+          return StreamBuilder<QuerySnapshot>(
+            stream: stream,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              if (snapshot.hasError) {
+                debugPrint("❌ Firestore (canales seguidos): ${snapshot.error}");
+                return const Center(
+                  child: Text(
+                    'No se pudieron cargar tus canales.',
+                    style: TextStyle(color: Colors.redAccent),
+                  ),
+                );
+              }
+
+              if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                return const Center(
+                  child: Text(
+                    'No sigues ningún canal.',
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                );
+              }
+
+              final canales = snapshot.data!.docs;
+
+              return ListView.builder(
+                itemCount: canales.length,
+                itemBuilder: (context, index) {
+                  final c = canales[index].data() as Map<String, dynamic>? ?? {};
+                  final tipsterId = canales[index].id;
+                  final nombreCanal = (c['nombre_canal'] ?? 'Canal').toString();
+                  final fotoCanal = (c['foto_canal'] ?? c['foto'])?.toString();
+                  final role = c['role']?.toString() ?? '';
+
+                  return ListTile(
+                    tileColor: const Color(0xFF1E1E1E),
+                    leading: CircleAvatar(
+                      radius: 24,
+                      backgroundImage: (fotoCanal != null && fotoCanal.isNotEmpty)
+                          ? NetworkImage(fotoCanal)
+                          : null,
+                      child: (fotoCanal == null || fotoCanal.isEmpty)
+                          ? const Icon(Icons.person, size: 28, color: Colors.white70)
+                          : null,
+                    ),
+                    title: UserName(name: nombreCanal, role: role),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => TipsterChannelPage(tipsterId: tipsterId),
+                        ),
+                      );
+                    },
+                  );
+                },
+              );
+            },
+          );
+        },
+      ),
 
       // ----------- Pestaña 3: Buscar -----------
       const BuscarPage(),
@@ -170,21 +283,10 @@ class _HomePageState extends State<HomePage> {
         ? (p['stake'] as num).toDouble()
         : double.tryParse(p['stake']?.toString() ?? "") ?? 0.0;
 
-    String confianza = "Baja";
-    if (stake >= 1 && stake <= 2) {
-      confianza = "Media";
-    } else if (stake >= 3 && stake <= 5) {
-      confianza = "Alta";
-    } else if (stake >= 6 && stake <= 10) {
-      confianza = "Máxima";
-    }
-
     return Card(
       color: const Color(0xFF1E1E1E),
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -199,9 +301,7 @@ class _HomePageState extends State<HomePage> {
                     CircleAvatar(
                       radius: 18,
                       backgroundImage:
-                          (fotoCanal != null && fotoCanal.isNotEmpty)
-                              ? NetworkImage(fotoCanal)
-                              : null,
+                          (fotoCanal != null && fotoCanal.isNotEmpty) ? NetworkImage(fotoCanal) : null,
                       child: (fotoCanal == null || fotoCanal.isEmpty)
                           ? const Icon(Icons.person, size: 22, color: Colors.white70)
                           : null,
@@ -242,39 +342,18 @@ class _HomePageState extends State<HomePage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  "${p['evento'] ?? ''} (${p['sport'] ?? ''})",
-                  style: const TextStyle(fontSize: 14, color: Colors.white70),
-                ),
+                Text("${p['evento'] ?? ''} (${p['sport'] ?? ''})",
+                    style: const TextStyle(fontSize: 14, color: Colors.white70)),
                 const SizedBox(height: 8),
                 Text(
                   "${p['seleccion'] ?? ''}",
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
+                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
                 ),
                 const SizedBox(height: 12),
                 if (p['imageUrl'] != null && (p['imageUrl'] as String).isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 14),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: Image.network(
-                        p['imageUrl'],
-                        height: 160,
-                        width: double.infinity,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => const SizedBox(
-                          height: 160,
-                          child: Center(
-                            child: Text('⚠️ Imagen no disponible',
-                                style: TextStyle(color: Colors.white70)),
-                          ),
-                        ),
-                      ),
-                    ),
+                    child: _postImage(p['imageUrl']),
                   ),
                 Row(
                   children: [
@@ -290,10 +369,7 @@ class _HomePageState extends State<HomePage> {
                           child: Text(
                             "Stake ${p['stake'] ?? '-'}",
                             style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                            ),
+                              fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
                           ),
                         ),
                       ),
@@ -320,10 +396,7 @@ class _HomePageState extends State<HomePage> {
                                           ? "Media"
                                           : "Baja",
                               style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                              ),
+                                fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
                             ),
                           ],
                         ),
@@ -345,10 +418,7 @@ class _HomePageState extends State<HomePage> {
                             Text(
                               "${p['cuota'] ?? '-'}",
                               style: const TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                              ),
+                                fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
                             ),
                           ],
                         ),
@@ -364,7 +434,9 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  void _onItemTapped(int index) => setState(() => _selectedIndex = index);
+  void _onItemTapped(int index) {
+    setState(() => _selectedIndex = index);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -379,10 +451,7 @@ class _HomePageState extends State<HomePage> {
           IconButton(
             icon: Icon(Icons.person, color: Colors.greenAccent[400]),
             onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const MiPerfilPage()),
-              );
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const MiPerfilPage()));
             },
           ),
         ],
@@ -395,18 +464,9 @@ class _HomePageState extends State<HomePage> {
         selectedItemColor: Colors.greenAccent[400],
         unselectedItemColor: Colors.greenAccent[400]!.withOpacity(0.5),
         items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.sports_soccer),
-            label: 'Pronósticos',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.campaign),
-            label: 'Canales que sigo', // 👈 renombrado
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.search),
-            label: 'Buscar',
-          ),
+          BottomNavigationBarItem(icon: Icon(Icons.sports_soccer), label: 'Pronósticos'),
+          BottomNavigationBarItem(icon: Icon(Icons.campaign), label: 'Canales que sigo'),
+          BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Buscar'),
         ],
       ),
     );

@@ -49,6 +49,51 @@ class _TipsterFeedPageState extends State<TipsterFeedPage> {
         .snapshots();
   }
 
+  // ---- Visor de imagen a pantalla completa ----
+  void _openImageViewer(String url) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withOpacity(0.9),
+      builder: (_) => GestureDetector(
+        onTap: () => Navigator.pop(context),
+        child: InteractiveViewer(
+          minScale: 0.5,
+          maxScale: 5,
+          child: Center(
+            child: Image.network(
+              url,
+              fit: BoxFit.contain,
+              errorBuilder: (_, __, ___) => const Padding(
+                padding: EdgeInsets.all(24),
+                child: Text('⚠️ Imagen no disponible', style: TextStyle(color: Colors.white70)),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _postImage(String url) {
+    return GestureDetector(
+      onTap: () => _openImageViewer(url),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Image.network(
+          url,
+          width: double.infinity,
+          fit: BoxFit.fitWidth, // 👈 sin recortes
+          errorBuilder: (_, __, ___) => const SizedBox(
+            height: 160,
+            child: Center(
+              child: Text('⚠️ Imagen no disponible', style: TextStyle(color: Colors.white70)),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -85,6 +130,7 @@ class _TipsterFeedPageState extends State<TipsterFeedPage> {
                   return const Center(child: CircularProgressIndicator(color: Colors.greenAccent));
                 }
                 if (snapshot.hasError) {
+                  // Si ves esto, suele ser por índices/permiso. Con esta query no debería pedirse índice.
                   return const Center(
                     child: Text("Error al cargar datos.", style: TextStyle(color: Colors.redAccent)),
                   );
@@ -221,21 +267,7 @@ class _TipsterFeedPageState extends State<TipsterFeedPage> {
                                     if (imageUrl != null)
                                       Padding(
                                         padding: const EdgeInsets.only(bottom: 14),
-                                        child: ClipRRect(
-                                          borderRadius: BorderRadius.circular(8),
-                                          child: Image.network(
-                                            imageUrl,
-                                            height: 160,
-                                            width: double.infinity,
-                                            fit: BoxFit.cover,
-                                            errorBuilder: (_, __, ___) => const SizedBox(
-                                              height: 160,
-                                              child: Center(
-                                                child: Text('⚠️ Imagen no disponible', style: TextStyle(color: Colors.white70)),
-                                              ),
-                                            ),
-                                          ),
-                                        ),
+                                        child: _postImage(imageUrl), // 👈 sin recortes + visor
                                       ),
                                     Row(
                                       children: [
