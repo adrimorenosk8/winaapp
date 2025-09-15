@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1054751758459",
+    "project_id": "wina-app-7dc97",
+    "storage_bucket": "wina-app-7dc97.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1054751758459:android:e93d02a8c21e56f01daade",
+        "android_client_info": {
+          "package_name": "com.wina.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC-0IdOGrtb0akWTKJsDIj-CO8a_DKeGik"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

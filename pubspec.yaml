@@ -1,0 +1,59 @@
+name: wina
+description: "A new Flutter project."
+publish_to: 'none' 
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.9.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  firebase_core: ^4.0.0
+  firebase_messaging: ^16.0.0
+  flutter_local_notifications: ^17.2.2
+  permission_handler: ^11.3.1
+  firebase_auth: ^6.0.1
+  cloud_firestore: ^6.0.0
+  image_picker: ^1.2.0
+  firebase_storage: ^13.0.0
+  intl: ^0.20.2
+  rxdart: ^0.27.7
+  string_similarity: ^2.0.0
+  crypto: ^3.0.3
+  async: ^2.11.0
+  firebase_app_check: ^0.4.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+  # Para cambiar el ícono
+  flutter_launcher_icons: ^0.13.1
+
+  # Para la pantalla splash
+  flutter_native_splash: ^2.4.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/logo.png
+
+# Configuración de ícono de la app
+flutter_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/logo.png"  # 👈 pon aquí tu icono (recomiendo 1024x1024)
+
+# Configuración de splash screen
+flutter_native_splash:
+  color: "#ffffff"   # color de fondo
+  image: assets/images/logo.png  # 👈 pon aquí la imagen para el splash
+  android: true
+  ios: true
+  web: false
