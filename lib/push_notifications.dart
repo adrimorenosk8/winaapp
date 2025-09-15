@@ -39,7 +39,8 @@ Future<void> initPushNotifications({required GlobalKey<NavigatorState> navKey}) 
   await fm.setAutoInitEnabled(true);
 
   // iOS: permisos
-  await fm.requestPermission(alert: true, badge: true, sound: true);
+  final settings = await fm.requestPermission(alert: true, badge: true, sound: true);
+  debugPrint("🔔 Permisos iOS: ${settings.authorizationStatus}"); // 👈 Nuevo log
 
   // iOS: mostrar banners en foreground
   await fm.setForegroundNotificationPresentationOptions(
@@ -140,7 +141,6 @@ Future<void> initPushNotifications({required GlobalKey<NavigatorState> navKey}) 
 
   // Log útil
   final token = await fm.getToken();
-  // En Release no siempre verás logs; usa el botón copy (abajo)
   debugPrint('🔑 FCM token (init): $token');
 }
 
@@ -200,7 +200,7 @@ Future<void> saveFcmTokenToFirestore() async {
   final base = {
     'token': fcmToken,
     'platform': Platform.isIOS ? 'ios' : 'android',
-    'uid': uid, // puede ser null si no hay sesión
+    'uid': uid,
     'updatedAt': now,
     if (apnsToken != null) 'apnsToken': apnsToken,
   };
