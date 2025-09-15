@@ -1,5 +1,7 @@
 import UIKit
 import Flutter
+import FirebaseCore
+import FirebaseMessaging
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
@@ -7,7 +9,11 @@ import Flutter
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    // Registrar con APNs
+    // Inicializar Firebase
+    FirebaseApp.configure()
+
+    // Permisos de notificación
+    UNUserNotificationCenter.current().delegate = self
     UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, error in
       if granted {
         DispatchQueue.main.async {
@@ -18,7 +24,9 @@ import Flutter
       }
     }
 
+    // Registro en APNs
     application.registerForRemoteNotifications()
+
     GeneratedPluginRegistrant.register(with: self)
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
@@ -29,6 +37,9 @@ import Flutter
     let tokenParts = deviceToken.map { data in String(format: "%02.2hhx", data) }
     let token = tokenParts.joined()
     print("✅ APNs device token: \(token)")
+
+    // 🔑 Pasar el APNs token a Firebase Messaging
+    Messaging.messaging().apnsToken = deviceToken
   }
 
   // ❌ Error al registrar en APNs
