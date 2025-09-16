@@ -28,6 +28,7 @@
 		<string>LaunchScreen</string>
 		<key>UIMainStoryboardFile</key>
 		<string>Main</string>
+
 		<key>UISupportedInterfaceOrientations</key>
 		<array>
 			<string>UIInterfaceOrientationPortrait</string>
@@ -42,11 +43,15 @@
 			<string>UIInterfaceOrientationLandscapeRight</string>
 		</array>
 
-		<!-- ✅ AÑADIDO: Permite recibir notificaciones push en segundo plano -->
+		<!-- ✅ Permite recibir notificaciones push en segundo plano -->
 		<key>UIBackgroundModes</key>
 		<array>
 			<string>remote-notification</string>
 		</array>
+
+		<!-- ✅ Deja el proxy de Firebase activo para gestionar notificaciones correctamente -->
+		<key>FirebaseAppDelegateProxyEnabled</key>
+		<true/>
 
 		<key>CADisableMinimumFrameDurationOnPhone</key>
 		<true/>

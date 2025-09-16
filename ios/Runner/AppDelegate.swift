@@ -1,8 +1,8 @@
 import UIKit
 import Flutter
-import UserNotifications
+import FirebaseMessaging   // solo Messaging; FirebaseApp se configura en Dart
 
-@main
+@UIApplicationMain
 @objc class AppDelegate: FlutterAppDelegate {
 
   override func application(
@@ -10,42 +10,41 @@ import UserNotifications
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
 
-    // Deja que Flutter/Firebase se encarguen de pedir permisos y registrar APNs.
-    // Solo fijamos el delegado para que los banners en foreground funcionen.
-    if #available(iOS 10.0, *) {
-      UNUserNotificationCenter.current().delegate = self
-    }
+    // No pedimos permisos aquí (lo haces en Dart). Solo:
+    // 1) fijamos el delegate heredado de FlutterAppDelegate
+    UNUserNotificationCenter.current().delegate = self
+
+    // 2) registramos en APNs (si el usuario ya aceptó, iOS devolverá el deviceToken)
+    application.registerForRemoteNotifications()
 
     GeneratedPluginRegistrant.register(with: self)
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
-  // (Opcional) logs de token APNs si iOS decide registrarse desde FirebaseMessaging
+  // ✅ iOS nos da deviceToken → pásalo a Firebase Messaging
   override func application(_ application: UIApplication,
                             didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
-    let token = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
-    print("✅ APNs device token: \(token)")
+    let apnsHex = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
+    print("✅ APNs device token: \(apnsHex)")
+
+    // Clave: enlazar APNs→FCM
+    Messaging.messaging().apnsToken = deviceToken
+
+    // Log nativo del FCM por si ya está disponible
+    Messaging.messaging().token { fcm, err in
+      if let err = err {
+        print("⚠️ FCM token (native) error: \(err)")
+      } else {
+        print("✅ FCM token (native): \(fcm ?? "nil")")
+      }
+    }
+
     super.application(application, didRegisterForRemoteNotificationsWithDeviceToken: deviceToken)
   }
 
   override func application(_ application: UIApplication,
                             didFailToRegisterForRemoteNotificationsWithError error: Error) {
-    print("❌ Error al registrar APNs: \(error.localizedDescription)")
+    print("❌ APNs register error: \(error.localizedDescription)")
     super.application(application, didFailToRegisterForRemoteNotificationsWithError: error)
-  }
-
-  // Mostrar notificación en foreground (compatible iOS 10+)
-  @available(iOS 10.0, *)
-  override func userNotificationCenter(_ center: UNUserNotificationCenter,
-                                       willPresent notification: UNNotification,
-                                       withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-    completionHandler([.alert, .badge, .sound])
-  }
-
-  @available(iOS 10.0, *)
-  override func userNotificationCenter(_ center: UNUserNotificationCenter,
-                                       didReceive response: UNNotificationResponse,
-                                       withCompletionHandler completionHandler: @escaping () -> Void) {
-    completionHandler()
   }
 }

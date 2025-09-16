@@ -125,10 +125,14 @@ void main() async {
   await runZonedGuarded<Future<void>>(() async {
     try {
       await _initFirebase();
-      // 👇 Inicializa FCM + notificaciones locales (abre pantallas vía navigatorKey)
-      await initPushNotifications(navKey: navigatorKey);
 
-      // 🔑 Log del token (sólo para depurar)
+      // ⛔️ NO bloquear el arranque esperando a FCM
+      // await initPushNotifications(navKey: navigatorKey);
+
+      // ✅ Lánzalo en background
+      unawaited(initPushNotifications(navKey: navigatorKey));
+
+      // 🔑 (opcional) Log del token para depurar; si aún no está, saldrá null y luego llegará.
       try {
         final token = await FirebaseMessaging.instance.getToken();
         debugPrint("🔑 FCM token (main): $token");
