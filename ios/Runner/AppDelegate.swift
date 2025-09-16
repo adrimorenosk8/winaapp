@@ -11,31 +11,31 @@ import FirebaseMessaging   // del plugin firebase_messaging
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
 
-    // No llamamos a FirebaseApp.configure() aquí (ya lo haces en Dart).
-    // Solo configuramos el delegate y registramos APNs.
+    // NO configuramos Firebase aquí (ya lo haces en Dart con Firebase.initializeApp)
+    // Solo dejamos listo el delegate y el registro de APNs.
     UNUserNotificationCenter.current().delegate = self
 
-    // Registramos APNs (la petición de permisos la haces en Dart con FirebaseMessaging.requestPermission)
+    // Si el usuario ya aceptó permisos desde Dart, esto registrará APNs.
     application.registerForRemoteNotifications()
 
     GeneratedPluginRegistrant.register(with: self)
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
-  // ✅ APNs token recibido → pásalo a Firebase (para que FCM pueda emitir su token)
+  // ✅ APNs token recibido → pásalo a Firebase (clave para que FCM genere su token)
   override func application(_ application: UIApplication,
                             didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
-    // Log legible del APNs token
+    // Log legible del token APNs (útil en depuración local/Xcode)
     let token = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
     print("✅ APNs device token: \(token)")
 
-    // Enlazar APNs con Firebase Messaging (clave para obtener FCM token)
+    // Importante: enlazar el token APNs con FCM
     Messaging.messaging().apnsToken = deviceToken
 
     super.application(application, didRegisterForRemoteNotificationsWithDeviceToken: deviceToken)
   }
 
-  // ❌ Error APNs
+  // ❌ Error APNs (si algo falla con el registro en Apple Push)
   override func application(_ application: UIApplication,
                             didFailToRegisterForRemoteNotificationsWithError error: Error) {
     print("❌ Error al registrar APNs: \(error.localizedDescription)")

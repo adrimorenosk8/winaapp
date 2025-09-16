@@ -1,5 +1,6 @@
 // lib/push_notifications.dart
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -38,9 +39,9 @@ Future<void> initPushNotifications({required GlobalKey<NavigatorState> navKey}) 
   // Habilita auto-init (por si se desactivó)
   await fm.setAutoInitEnabled(true);
 
-  // iOS: permisos
+  // iOS: pedir permisos (en Android se ignora)
   final settings = await fm.requestPermission(alert: true, badge: true, sound: true);
-  debugPrint("🔔 Permisos iOS: ${settings.authorizationStatus}"); // 👈 Nuevo log
+  debugPrint("🔔 Permisos iOS: ${settings.authorizationStatus}");
 
   // iOS: mostrar banners en foreground
   await fm.setForegroundNotificationPresentationOptions(
@@ -104,7 +105,7 @@ Future<void> initPushNotifications({required GlobalKey<NavigatorState> navKey}) 
       return;
     }
 
-    // iOS fallback para data-only con title/body en data
+    // iOS: fallback para data-only con title/body en data
     if (Platform.isIOS && n == null && (data['title'] != null || data['body'] != null)) {
       await _fln.show(
         msg.hashCode,
@@ -133,15 +134,43 @@ Future<void> initPushNotifications({required GlobalKey<NavigatorState> navKey}) 
     _handleNavigation(navKey, initial.data);
   }
 
-  // Guarda token (haya o no usuario logueado)
+  // 🔎 Logs de diagnóstico iOS
+  if (Platform.isIOS) {
+    final apns = await fm.getAPNSToken();
+    debugPrint('📬 APNs token (Dart): $apns');
+  }
+
+  // Espera activa a que FCM emita token (iOS puede tardar unos segundos tras APNs)
+  final fcm = await _waitForFcmToken(timeout: const Duration(seconds: 15));
+  debugPrint('🔑 FCM token (init): $fcm');
+
+  // Guarda token (si existe)
   await saveFcmTokenToFirestore();
 
   // Actualiza en rotación
-  FirebaseMessaging.instance.onTokenRefresh.listen((_) => saveFcmTokenToFirestore());
+  FirebaseMessaging.instance.onTokenRefresh.listen((t) async {
+    debugPrint('🔁 onTokenRefresh: $t');
+    await saveFcmTokenToFirestore();
+  });
+}
 
-  // Log útil
-  final token = await fm.getToken();
-  debugPrint('🔑 FCM token (init): $token');
+Future<String?> _waitForFcmToken({Duration timeout = const Duration(seconds: 15)}) async {
+  final fm = FirebaseMessaging.instance;
+  final end = DateTime.now().add(timeout);
+  String? token;
+
+  while (DateTime.now().isBefore(end)) {
+    token = await fm.getToken();
+    if (token != null && token.isNotEmpty) return token;
+
+    // En iOS, asegura que APNs está ya enlazado
+    if (Platform.isIOS) {
+      final apns = await fm.getAPNSToken();
+      debugPrint('⏳ Esperando FCM… APNs=$apns');
+    }
+    await Future.delayed(const Duration(seconds: 1));
+  }
+  return token; // será null si no llegó a tiempo
 }
 
 void _handleNavigation(GlobalKey<NavigatorState> navKey, Map<String, dynamic> data) {
@@ -183,19 +212,27 @@ class CopyFcmTokenButton extends StatelessWidget {
 
 // ---------- Guardado del token (ahora SIEMPRE guarda) ----------
 Future<void> saveFcmTokenToFirestore() async {
-  final fcmToken = await FirebaseMessaging.instance.getToken();
-  if (fcmToken == null || fcmToken.isEmpty) return;
+  final fm = FirebaseMessaging.instance;
 
-  // iOS: intenta capturar el APNs token (para diagnosticar)
+  String? fcmToken = await fm.getToken();
+  // Si aún no ha llegado, espera un poco más antes de rendirte
+  if (fcmToken == null || fcmToken.isEmpty) {
+    fcmToken = await _waitForFcmToken(timeout: const Duration(seconds: 10));
+  }
+  if (fcmToken == null || fcmToken.isEmpty) {
+    debugPrint('⚠️ No hay FCM token todavía, no se guarda.');
+    return;
+  }
+
+  // iOS: intenta capturar el APNs token (para diagnóstico)
   String? apnsToken;
   if (Platform.isIOS) {
     try {
-      apnsToken = await FirebaseMessaging.instance.getAPNSToken();
+      apnsToken = await fm.getAPNSToken();
     } catch (_) {}
   }
 
   final uid = FirebaseAuth.instance.currentUser?.uid;
-
   final now = FieldValue.serverTimestamp();
   final base = {
     'token': fcmToken,
