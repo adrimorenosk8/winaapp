@@ -1,6 +1,7 @@
 import UIKit
 import Flutter
-import FirebaseMessaging   // solo Messaging; FirebaseApp se configura en Dart
+import UserNotifications
+import FirebaseMessaging   // plugin de firebase_messaging
 
 @UIApplicationMain
 @objc class AppDelegate: FlutterAppDelegate {
@@ -10,27 +11,28 @@ import FirebaseMessaging   // solo Messaging; FirebaseApp se configura en Dart
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
 
-    // No pedimos permisos aquí (lo haces en Dart). Solo:
-    // 1) fijamos el delegate heredado de FlutterAppDelegate
-    UNUserNotificationCenter.current().delegate = self
+    // Deja que Flutter pida permisos; aquí solo fijamos el delegate y registramos APNs.
+    if #available(iOS 10.0, *) {
+      UNUserNotificationCenter.current().delegate = self
+    }
 
-    // 2) registramos en APNs (si el usuario ya aceptó, iOS devolverá el deviceToken)
+    // ⚠️ IMPORTANTE: registra APNs (no bloquea y es seguro si aún no dieron permiso)
     application.registerForRemoteNotifications()
 
     GeneratedPluginRegistrant.register(with: self)
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
-  // ✅ iOS nos da deviceToken → pásalo a Firebase Messaging
+  // ✅ APNs device token recibido: log + enlazar con FCM
   override func application(_ application: UIApplication,
                             didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
     let apnsHex = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
     print("✅ APNs device token: \(apnsHex)")
 
-    // Clave: enlazar APNs→FCM
+    // Enlazar explícitamente APNs → FCM (acelera la obtención del FCM token)
     Messaging.messaging().apnsToken = deviceToken
 
-    // Log nativo del FCM por si ya está disponible
+    // (Diagnóstico) intenta leer el FCM token nativo
     Messaging.messaging().token { fcm, err in
       if let err = err {
         print("⚠️ FCM token (native) error: \(err)")
