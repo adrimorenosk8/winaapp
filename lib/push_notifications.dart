@@ -134,43 +134,52 @@ Future<void> initPushNotifications({required GlobalKey<NavigatorState> navKey}) 
     _handleNavigation(navKey, initial.data);
   }
 
-  // 🔎 Logs de diagnóstico iOS
-  if (Platform.isIOS) {
-    final apns = await fm.getAPNSToken();
-    debugPrint('📬 APNs token (Dart): $apns');
-  }
-
-  // Espera activa a que FCM emita token (iOS puede tardar unos segundos tras APNs)
-  final fcm = await _waitForFcmToken(timeout: const Duration(seconds: 15));
-  debugPrint('🔑 FCM token (init): $fcm');
-
-  // Guarda token (si existe)
-  await saveFcmTokenToFirestore();
-
-  // Actualiza en rotación
+  // 🔁 Rotación de FCM
   FirebaseMessaging.instance.onTokenRefresh.listen((t) async {
     debugPrint('🔁 onTokenRefresh: $t');
     await saveFcmTokenToFirestore();
   });
+
+  // ✅ Esperamos activos a APNs + FCM y persistimos al arrancar
+  await _waitAndPersistTokens();
+
+  // (Opcional) deja un rastro en debugTokens cuando estás en debug
+  if (kDebugMode) {
+    await _dumpPushDebug();
+  }
 }
 
-Future<String?> _waitForFcmToken({Duration timeout = const Duration(seconds: 15)}) async {
+/// Espera activa por APNs (hasta 30s) y FCM (hasta 60s) para asegurarnos de que existen
+Future<Map<String, String?>> _waitForApnsAndFcm({
+  Duration apnsTimeout = const Duration(seconds: 30),
+  Duration fcmTimeout  = const Duration(seconds: 60),
+}) async {
   final fm = FirebaseMessaging.instance;
-  final end = DateTime.now().add(timeout);
-  String? token;
+  String? apns;
+  String? fcm;
 
-  while (DateTime.now().isBefore(end)) {
-    token = await fm.getToken();
-    if (token != null && token.isNotEmpty) return token;
-
-    // En iOS, asegura que APNs está ya enlazado
-    if (Platform.isIOS) {
-      final apns = await fm.getAPNSToken();
-      debugPrint('⏳ Esperando FCM… APNs=$apns');
-    }
+  final apnsDeadline = DateTime.now().add(apnsTimeout);
+  while (DateTime.now().isBefore(apnsDeadline) && (apns == null || apns.isEmpty)) {
+    try { apns = await fm.getAPNSToken(); } catch (_) {}
+    if (apns != null && apns.isNotEmpty) break;
     await Future.delayed(const Duration(seconds: 1));
   }
-  return token; // será null si no llegó a tiempo
+
+  final fcmDeadline = DateTime.now().add(fcmTimeout);
+  while (DateTime.now().isBefore(fcmDeadline) && (fcm == null || fcm.isEmpty)) {
+    try { fcm = await fm.getToken(); } catch (_) {}
+    if (fcm != null && fcm.isNotEmpty) break;
+    await Future.delayed(const Duration(seconds: 1));
+  }
+
+  debugPrint('🧪 Espera completada → APNs=$apns | FCM=$fcm');
+  return {'apns': apns, 'fcm': fcm};
+}
+
+/// Bloquea hasta que haya tokens y los sube
+Future<void> _waitAndPersistTokens() async {
+  await _waitForApnsAndFcm();    // no uso el resultado aquí porque saveFcmTokenToFirestore vuelve a leer
+  await saveFcmTokenToFirestore();
 }
 
 void _handleNavigation(GlobalKey<NavigatorState> navKey, Map<String, dynamic> data) {
@@ -215,9 +224,10 @@ Future<void> saveFcmTokenToFirestore() async {
   final fm = FirebaseMessaging.instance;
 
   String? fcmToken = await fm.getToken();
-  // Si aún no ha llegado, espera un poco más antes de rendirte
   if (fcmToken == null || fcmToken.isEmpty) {
-    fcmToken = await _waitForFcmToken(timeout: const Duration(seconds: 10));
+    // Intento final por si aún no estaba disponible
+    final waited = await _waitForApnsAndFcm(apnsTimeout: const Duration(seconds: 10), fcmTimeout: const Duration(seconds: 20));
+    fcmToken = waited['fcm'];
   }
   if (fcmToken == null || fcmToken.isEmpty) {
     debugPrint('⚠️ No hay FCM token todavía, no se guarda.');
@@ -234,7 +244,7 @@ Future<void> saveFcmTokenToFirestore() async {
 
   final uid = FirebaseAuth.instance.currentUser?.uid;
   final now = FieldValue.serverTimestamp();
-  final base = {
+  final base = <String, dynamic>{
     'token': fcmToken,
     'platform': Platform.isIOS ? 'ios' : 'android',
     'uid': uid,
@@ -262,6 +272,26 @@ Future<void> saveFcmTokenToFirestore() async {
       if (apnsToken != null) 'apnsToken': apnsToken,
     }, SetOptions(merge: true));
   }
+
+  debugPrint('✅ Guardado FCM token en Firestore: $fcmToken');
+}
+
+/// (Opcional) Diagnóstico: escribe un doc en "debugTokens" con estado actual
+Future<void> _dumpPushDebug() async {
+  final fm = FirebaseMessaging.instance;
+  final apns = Platform.isIOS ? (await fm.getAPNSToken()) : null;
+  final fcm = await fm.getToken();
+  final uid = FirebaseAuth.instance.currentUser?.uid;
+
+  await FirebaseFirestore.instance.collection('debugTokens').add({
+    'apnsToken': apns,
+    'fcmToken': fcm,
+    'platform': Platform.isIOS ? 'ios' : 'android',
+    'uid': uid,
+    'createdAt': FieldValue.serverTimestamp(),
+  });
+
+  debugPrint('📝 dumpPushDebug → apns=$apns | fcm=$fcm');
 }
 
 // ---- Suscripción a topics por canal ----
